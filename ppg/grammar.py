@@ -19,25 +19,20 @@ class PolicyGrammar(object):
         Forward pass for the PPG DAG; construct the probability distribution
         P(a | s)
         """
-        # Base case: Policy primitives return probs over actions.
+        # Base case: Policy primitives return probs over action
         if(root.is_primitive): return root.policy_probs
 
         # Recursive case:
         for production in self.rules[root]:
             # How do we work production and activation probabilities into this?
-            return self.forward
-
-    """
-    Testing pushing code w/atom! Also, I think I've come up with a recurrence
-    relation we can use, although I'm not quite sure how to work the "soft"
-    Boolean logic into the formulation yet
-    """
 
 class Token(object):
     def __init__(self,
                  activation_prob: Tensor,
+                 transition_prob: Tensor,
                  is_primitive: bool):
         self.activation_prob: Tensor = activation_prob
+        self.transition_prob: Tensor = transition_prob
         self.is_primitive: bool = is_primitive
 
 class Goal(Token):
@@ -49,7 +44,7 @@ class PolicyPrimitive(Token):
     def __init__(self,
                  name: str,
                  action_probs: Tensor):
-        pass
+        self.action_probs: Tensor = action_probs
 
 class Production(object):
     def __init__(self,
