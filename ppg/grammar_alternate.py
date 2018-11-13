@@ -35,6 +35,7 @@ class PolicyGrammar(object):
         """
         prob = 0
         for production in self.rules[root]:
+            """ ** Won't Compile ** (see comments above) """
             prob += root.activation_prob*root.transition_prob[i]*self.forward(production)
 
         return prob
