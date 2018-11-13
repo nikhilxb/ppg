@@ -27,6 +27,12 @@ class PolicyGrammar(object):
             # How do we work production and activation probabilities into this?
             return self.forward
 
+    """
+    Testing pushing code w/atom! Also, I think I've come up with a recurrence
+    relation we can use, although I'm not quite sure how to work the "soft"
+    Boolean logic into the formulation yet
+    """
+
 class Token(object):
     def __init__(self,
                  activation_prob: Tensor,
