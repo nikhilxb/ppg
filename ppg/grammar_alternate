@@ -24,7 +24,7 @@ class PolicyGrammar(object):
         P(a | s)
         """
         # Base case: Policy primitives return probs over action
-        if(root.is_primitive): return root.action_probs
+        if(root.is_primitive): return root.action_probs*root.activation_prob
 
         # Recursive case
         """
