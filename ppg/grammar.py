@@ -172,6 +172,7 @@ class PolicyGrammar(object):
 
         # Recursive case: Traverse all possible productions from goal.
         probs: torch.Tensor = 0
+        # NOTE: doesn't look like the token class has a "productions" attribute 
         for i, production in enumerate(root.productions):
             probs += root.production_probs[i] * self.forward(production)
         return root.activation_prob * probs
