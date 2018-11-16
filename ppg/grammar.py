@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-from typing import List, Tuple, Mapping, Union, Optional
-from collections import defaultdict
-import torch
 import crayons
+from typing import List, Tuple, Mapping, Callable, Union, Any, Optional, cast
+from collections import defaultdict
 
 
 class Token(object):
@@ -11,11 +10,11 @@ class Token(object):
         self,
         name: str,
         is_primitive: bool,
-        activation_prob: Optional[torch.Tensor] = None,
+        activation_prob: Callable = lambda state: 0,
     ):
         self.name = name
         self.is_primitive: bool = is_primitive
-        self.activation_prob: Optional[torch.Tensor] = activation_prob
+        self.activation_prob: Callable = activation_prob
 
     def __str__(self):
         return self.name
@@ -30,11 +29,13 @@ class Goal(Token):
     def __init__(
         self,
         name: str,
-        activation_prob: Optional[torch.Tensor] = None,
-        production_probs: Optional[torch.Tensor] = None,
+        activation_prob: Callable = lambda state: 0,
+        production_probs: Callable = lambda state: [0],
+        productions: Optional[List[Token]] = None,
     ):
         super().__init__(name, False, activation_prob=activation_prob)
-        self.production_probs: Optional[torch.Tensor] = production_probs
+        self.production_probs: Callable = production_probs
+        self.productions: List[Token] = [] if productions is None else productions
 
 
 class Primitive(Token):
@@ -46,11 +47,11 @@ class Primitive(Token):
     def __init__(
         self,
         name: str,
-        activation_prob: Optional[torch.Tensor] = None,
-        action_probs: Optional[torch.Tensor] = None,
+        activation_prob: Callable = lambda state: 0,
+        action_probs: Callable = lambda state: [0],
     ):
         super().__init__(name, True, activation_prob=activation_prob)
-        self.action_probs: Optional[torch.Tensor] = action_probs
+        self.action_probs: Callable = action_probs
 
 
 class PolicyGrammar(object):
@@ -102,9 +103,6 @@ class PolicyGrammar(object):
         for pi in primitives: self.add_primitive(pi)
         for g in goals: self.add_goal(g)
 
-        # Map from goal name to list of defined productions
-        self.rules: Mapping[str, List[Token]] = defaultdict(list)
-
     @staticmethod
     def _add_token(store: Mapping[str, Token], token: Union[str, Token], token_cls):
         # Extract name and object from token specification
@@ -132,14 +130,14 @@ class PolicyGrammar(object):
     def add_goal(self, goal: Union[str, Goal]):
         PolicyGrammar._add_token(self.goals, goal, Goal)
 
-    def add_rule(self, goal: str, production: Token):
+    def add_production(self, goal: str, production: Token):
         if goal not in self.goals:
             raise ValueError("Invalid goal name in rule; got {}".format(goal))
-        self.rules[goal].append(production)
+        self.goals[goal].productions.append(production)
 
-    def add_rules(self, goal: str, productions: List[Token]):
+    def add_productions(self, goal: str, productions: List[Token]):
         for production in productions:
-            self.add_rule(goal, production)
+            self.add_production(goal, production)
 
     def get_primitives(self) -> Mapping[str, Primitive]:
         return self.primitives
@@ -150,69 +148,45 @@ class PolicyGrammar(object):
     def get_tokens(self) -> Tuple[Mapping[str, Primitive], Mapping[str, Goal]]:
         return self.primitives, self.goals
 
-    def __str__(self):
-        prims = "\n".join(["    {}".format(crayons.red(pi)) for pi in self.primitives])
-        goals = "\n".join(["    {}".format(crayons.blue(g)) for g in self.goals])
-        rules = "\n".join(["    {} --> {}".format(
-            crayons.blue(g),
-            " | ".join([str(crayons.red(t)) if t.is_primitive else str(crayons.blue(t))
-                        for t in tokens]))
-            for g, tokens in self.rules.items()]
-        )
+    def get_productions(self) -> Mapping[str, List[Token]]:
+        return {name: goal.productions for name, goal in self.goals.items()}
 
+    def __str__(self):
+        color = lambda s, is_primitive: crayons.red(s) if is_primitive else crayons.blue(s)
+        prims = "\n".join(["    {}".format(color(pi, True)) for pi in self.primitives])
+        goals = "\n".join(["    {}".format(color(g, False)) for g in self.goals])
+        rules = "\n".join(["    {} --> {}".format(
+            color(gname, False),
+            " | ".join([str(color(prod, prod.is_primitive)) for prod in gobj.productions]))
+            for gname, gobj in self.goals.items()]
+        )
         return "Primitives:\n{}\nGoals:\n{}\nRules:\n{}".format(prims, goals, rules)
 
-    def forward(self, root: Token) -> torch.Tensor:
-        """Construct Prob[a, G, Π | s] starting at goal `g`"""
-        # TODO: Make this work
+    def forward(self, start_goal: str, agent_state: Any) -> Any:
+        """Construct probability over each action by expanding the policy grammar starting from
+        the specified top-level goal.
+        :param start_goal
+        :param agent_state
+        :return
+        """
+        cache: Mapping[Token, Any] = {}
 
-        # Base case: Policy primitives return probs over action
-        if root.is_primitive:
-            return root.activation_prob * root.action_probs
+        def recurse(root: Token) -> Any:
+            # Cache case: Prevent re-computation
+            if root in cache:
+                return cache[root]
 
-        # Recursive case: Traverse all possible productions from goal.
-        probs: torch.Tensor = 0
-        for i, production in enumerate(root.productions):
-            probs += root.production_probs[i] * self.forward(production)
-        return root.activation_prob * probs
+            # Base case: Policy primitives return probs over action
+            if root.is_primitive:
+                root = cast(Primitive, root)
+                return root.activation_prob(agent_state) * root.action_probs(agent_state)
 
+            # Recursive case: Traverse all possible productions from goal.
+            root = cast(Goal, root)
+            downstream_probs = 0
+            production_probs = root.production_probs(agent_state)
+            for i, production in enumerate(root.productions):
+                downstream_probs += production_probs[i] * recurse(production)
+            return root.activation_prob(agent_state) * downstream_probs
 
-def test_grammar():
-    pg = PolicyGrammar(
-        primitives=[
-            "PickEgg",
-            "BreakEgg",
-            "PickFlour",
-            "PourFlour",
-            "MixDough",
-            "KneadDough",
-            "ShapeCookies",
-            "BakeCookies"
-        ],
-        goals=[
-            "AddEgg",
-            "AddFlour",
-            "MakeDough",
-            "MakeCookies"
-        ]
-    )
-    pi, g = pg.get_tokens()
-
-    pg.add_rules("AddEgg", [
-        pi["PickEgg"], pi["BreakEgg"],
-    ])
-    pg.add_rules("AddFlour", [
-        pi["PickFlour"], pi["PourFlour"]
-    ])
-    pg.add_rules("MakeDough", [
-        g["AddEgg"], g["AddFlour"], pi["MixDough"], pi["KneadDough"]
-    ])
-    pg.add_rules("MakeCookies", [
-        g["MakeDough"], pi["ShapeCookies"], pi["BakeCookies"]
-    ])
-
-    print(pg)
-
-
-if __name__ == "__main__":
-    test_grammar()
+        return recurse(self.goals[start_goal])
