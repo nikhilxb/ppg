@@ -247,6 +247,40 @@ class GridWorld(object):
             # finally, update the new grid coordinates
             self.grid[hand.grid_location[0]][hand.grid_location[1]] = 1
 
-    """
-    TODO: Construct the pick up / drop functions for the hand object
-    """
+    def hand_pick(self, hand):
+        """
+        Pick up an object, if one is located at the current cell; otherwise, return None
+        """
+        cell_index = hand.grid_location[0]
+        if self.grid[cell_index][0] == 1:
+            # there is an object present
+            # change the hand's flag
+            if not hand.holding:
+                hand.holding = True
+                # reassign current element to 0
+                self.grid[cell_index][0] = 0
+            else:
+                # currently holding an object
+                return None
+        else:
+            # no object present at this cell
+            return None
+
+    def hand_drop(self, hand):
+        """
+        Drop an object, if no object located at current cell; otherwise, return None
+        """
+        cell_index = hand.grid_location[0]
+        if self.grid[cell_index][0] == 0:
+            # no object present
+            # change the hand's flag
+            if hand.holding:
+                hand.holding = False
+                # reassing current element to 1
+                self.grid[cell_index][0] = 1
+            else:
+                # not holding an object
+                return None
+        else:
+            # object already present at cell 
+            return None
