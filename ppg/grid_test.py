@@ -24,7 +24,7 @@ print(hand.grid_location)
 
 print("----------------------")
 
-test.hand_up_down(hand, 'l')
+test.hand_move(hand, 'l')
 print("Hand's real coordinates after move:")
 print(hand.real_location)
 print("Hand's grid coordinates after move:")

@@ -192,7 +192,7 @@ class GridWorld(object):
         - pick up
         - drop
     """
-    def hand_up_down(self, hand, direction):
+    def hand_move(self, hand, direction):
         """
         Move the passed hand object one cell up / down / left / right. The flag "direction" indicates
         which way we are moving: direction = 'u' , 'd' , 'l' , or 'r'.
