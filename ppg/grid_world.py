@@ -1,6 +1,41 @@
 #from typing import List, Tuple, Mapping, Callable, Union, Any, Optional, cast
 import numpy as np
 
+class asset(object):
+    """
+    Constructs an asset object, which represents the manipulators controlled by the algorithm.
+    One instance of this class is constructed each time a tuple is passed to the GridWorld
+    constructor through the Assets list (see below).
+    """
+    def __init__(self, location, holding=False):
+        """
+        The constructor is passed a tuple indicating the asset's position in real space, and
+        a flag to indicate if the asset is holding an object (defaulted to False)
+        """
+        self.location = location
+        self.holding = holding # Boolean to indicate if asset is holding an object
+
+    def grid_location(self, grid_size):
+        """
+        Compute the coordinates of the asset on the grid data structure (see below)
+        """
+        row = 2 # assets always given row 2
+        col = self.location[0]*grid_size[1] + self.location[1]
+
+        return (row, col)
+
+    def print_summary(self, grid_size):
+        """
+        Prints a summary of the current asset (mostly for debugging)
+        """
+        print("Asset's real-world location " + str(self.location))
+        grid_coord = self.grid_location(grid_size)
+        print("Asset's grid location " + str(grid_coord))
+        if self.holding:
+            print("The asset is holding an object")
+        else:
+            print("The asset is not holding an object")
+
 class GridWorld(object):
     """
     Basic class for an instantiation of a grid world object. Constructs a two-dimensional grid
@@ -90,6 +125,7 @@ class GridWorld(object):
                     locations["asset_" + str(j)] = (index, object_col)
 
         return grid, locations
+
 
 """
 Accept arguments from the command line, and construct the grid object automatically / print it to the console.
