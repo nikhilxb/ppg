@@ -1,16 +1,46 @@
-"""
-Playground for testing the functionality of the GridWorld class
-"""
+
+# Playground for testing the functionality of the GridWorld class
 
 goals = [(0,1)]
-assets = [(1,1)]
-objects = []
+hands = [(0,0)]
+blocks = []
 size = (2,2)
 
 from grid_world import GridWorld
-test = GridWorld(assets, goals, objects, size)
+test = GridWorld(hands, goals, blocks, size)
 
-grid_1, locations_1 = test.construct_grid()
+test.construct_grid()
+grid_1 = test.grid
+
+print("/////////////////////")
 
 print(grid_1)
-print(locations_1)
+
+hand = test.hand_list[0]
+print("Hand's real coordinates before move:")
+print(hand.real_location)
+print("Hand's grid coordinates before move:")
+print(hand.grid_location)
+
+print("----------------------")
+
+test.hand_up_down(hand, 'l')
+print("Hand's real coordinates after move:")
+print(hand.real_location)
+print("Hand's grid coordinates after move:")
+print(hand.grid_location)
+
+print(grid_1)
+
+# Playground for testing how classes interact
+
+"""
+from class_test import foo_1, foo_2
+
+count = 3
+
+test_1 = foo_2(count)
+
+print(test_1.test_list)
+
+"""
