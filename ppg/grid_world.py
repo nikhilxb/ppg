@@ -27,6 +27,8 @@ class Hand(Asset):
     def __init__(self, location, name, grid_size, holding=False):
         super(Hand, self).__init__(location, name, grid_size)
         self.holding = holding # Boolean to indicate if hand is holding an object
+        self.goal_blocks = 0 # track how many blocks this hand has moved to the goal area
+        self.current_block = None # track which block is currently held, if any
 
         # construct the grid location of the hand
         self.grid_row = 2 # hand always given row 2
@@ -247,6 +249,18 @@ class GridWorld(object):
             # finally, update the new grid coordinates
             self.grid[hand.grid_location[0]][hand.grid_location[1]] = 1
 
+    def find_object(self, target_coord):
+        """
+        Given a grid target coordinate tuple (r,c), this function finds the object in block_list (if any)
+        that has the same grid coordinates. Used as a helper function for hand drop/pick below.
+        """
+        for block in self.block_list:
+            if block.grid_location == target_coord:
+                return block
+        # such a block is not present
+        # shouldn't be the case if initialized correctly
+        return None
+
     def hand_pick(self, hand):
         """
         Pick up an object, if one is located at the current cell; otherwise, return None
@@ -254,9 +268,12 @@ class GridWorld(object):
         cell_index = hand.grid_location[0]
         if self.grid[cell_index][0] == 1:
             # there is an object present
-            # change the hand's flag
-            if not hand.holding:
+            # find the object in block_list
+            cell_object = self.find_object(hand.grid_location)
+            if not hand.holding and cell_object is not None:
+                # change the hand's flag
                 hand.holding = True
+                hand.current_block = cell_object
                 # reassign current element to 0
                 self.grid[cell_index][0] = 0
             else:
@@ -268,19 +285,29 @@ class GridWorld(object):
 
     def hand_drop(self, hand):
         """
-        Drop an object, if no object located at current cell; otherwise, return None
+        Drop an object, if no object located at current cell; otherwise, return None.
+        Also check if object is dropped on a goal cell; if so, increment the goal_blocks
+        counter and remove the object from the block_list cache.
         """
         cell_index = hand.grid_location[0]
         if self.grid[cell_index][0] == 0:
             # no object present
-            # change the hand's flag
             if hand.holding:
+                # change the hand's flag
                 hand.holding = False
-                # reassing current element to 1
-                self.grid[cell_index][0] = 1
+                if self.grid[cell_index][1] == 0:
+                    # current cell is not a goal element
+                    self.grid[cell_index][0] = 1
+                    hand.current_block = None
+                else:
+                    # current cell is a goal element
+                    # do not deposit block, but remove it from cache
+                    hand.goal_blocks += 1
+                    self.block_list.remove(hand.current_block)
+                    hand.current_block = None
             else:
                 # not holding an object
                 return None
         else:
-            # object already present at cell 
+            # object already present at cell
             return None
