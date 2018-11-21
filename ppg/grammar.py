@@ -6,11 +6,12 @@ from collections import defaultdict
 
 class Token(object):
     """This class defines an abstract token, which can be either a goal or policy primitive."""
+
     def __init__(
-        self,
-        name: str,
-        is_primitive: bool,
-        activation_prob: Callable = lambda state: 0,
+            self,
+            name: str,
+            is_primitive: bool,
+            activation_prob: Callable = lambda state: 0,
     ):
         self.name = name
         self.is_primitive: bool = is_primitive
@@ -26,12 +27,13 @@ class Goal(Token):
     A goal token has an additional `production_probs` property, which defines the probabilities of
     producing each of the productions defined for the goal.
     """
+
     def __init__(
-        self,
-        name: str,
-        activation_prob: Callable = lambda state: 0,
-        production_probs: Callable = lambda state: [0],
-        productions: Optional[List[Token]] = None,
+            self,
+            name: str,
+            activation_prob: Callable = lambda state: 0,
+            production_probs: Callable = lambda state: [0],
+            productions: Optional[List[Token]] = None,
     ):
         super().__init__(name, False, activation_prob=activation_prob)
         self.production_probs: Callable = production_probs
@@ -44,11 +46,12 @@ class Primitive(Token):
     A policy primitive has an additional `action_probs` property, which defines the probabilities of
     taking each possible agent action under the policy.
     """
+
     def __init__(
-        self,
-        name: str,
-        activation_prob: Callable = lambda state: 0,
-        action_probs: Callable = lambda state: [0],
+            self,
+            name: str,
+            activation_prob: Callable = lambda state: 0,
+            action_probs: Callable = lambda state: [0],
     ):
         super().__init__(name, True, activation_prob=activation_prob)
         self.action_probs: Callable = action_probs
@@ -93,15 +96,17 @@ class PolicyGrammar(object):
     """
 
     def __init__(
-        self,
-        primitives: List[Union[str, Primitive]] = [],
-        goals: List[Union[str, Goal]] = [],
+            self,
+            primitives: List[Union[str, Primitive]] = [],
+            goals: List[Union[str, Goal]] = [],
     ):
         # Register all primitives and goals
         self.primitives: Mapping[str, Primitive] = {}
         self.goals: Mapping[str, Goal] = {}
-        for pi in primitives: self.add_primitive(pi)
-        for g in goals: self.add_goal(g)
+        for pi in primitives:
+            self.add_primitive(pi)
+        for g in goals:
+            self.add_goal(g)
 
     @staticmethod
     def _add_token(store: Mapping[str, Token], token: Union[str, Token], token_cls):
@@ -115,8 +120,10 @@ class PolicyGrammar(object):
             obj = token
             name = obj.name
         else:
-            raise ValueError("Token specification must be of type 'str' or '{}';"
-                             "got {} (of type {})".format(token_cls.__name__, token, type(token)))
+            raise ValueError(
+                "Token specification must be of type 'str' or '{}';"
+                "got {} (of type {})".format(token_cls.__name__, token, type(token))
+            )
 
         # Ensure registered token is unique
         if name in store:
@@ -152,13 +159,19 @@ class PolicyGrammar(object):
         return {name: goal.productions for name, goal in self.goals.items()}
 
     def __str__(self):
-        color = lambda s, is_primitive: crayons.red(s) if is_primitive else crayons.blue(s)
+
+        def color(s, is_primitive):
+            crayons.red(s) if is_primitive else crayons.blue(s)
+
         prims = "\n".join(["    {}".format(color(pi, True)) for pi in self.primitives])
         goals = "\n".join(["    {}".format(color(g, False)) for g in self.goals])
-        rules = "\n".join(["    {} --> {}".format(
-            color(gname, False),
-            " | ".join([str(color(prod, prod.is_primitive)) for prod in gobj.productions]))
-            for gname, gobj in self.goals.items()]
+        rules = "\n".join(
+            [
+                "    {} --> {}".format(
+                    color(gname, False),
+                    " | ".join([str(color(prod, prod.is_primitive)) for prod in gobj.productions]),
+                ) for gname, gobj in self.goals.items()
+            ]
         )
         return "Primitives:\n{}\nGoals:\n{}\nRules:\n{}".format(prims, goals, rules)
 

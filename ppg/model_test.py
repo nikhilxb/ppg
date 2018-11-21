@@ -23,9 +23,7 @@ class ModelTest(unittest.TestCase):
                 nn.Softmax(),
             )
 
-        net = PolicyGrammarNet(
-            pg, make_activation_net, make_production_net,
-        )
+        net = PolicyGrammarNet(pg, make_activation_net, make_production_net)
 
         print(net)
         self.assertTrue(True)  # TODO

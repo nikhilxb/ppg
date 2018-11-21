@@ -17,28 +17,47 @@ class GrammarTest(unittest.TestCase):
                 "MixDough",
                 "KneadDough",
                 "ShapeCookies",
-                "BakeCookies"
+                "BakeCookies",
             ],
             goals=[
                 "AddEgg",
                 "AddFlour",
                 "MakeDough",
-                "MakeCookies"
-            ]
+                "MakeCookies",
+            ],
         )
         pi, g = pg.get_tokens()
-        pg.add_productions("AddEgg", [
-            pi["PickEgg"], pi["BreakEgg"],
-        ])
-        pg.add_productions("AddFlour", [
-            pi["PickFlour"], pi["PourFlour"],
-        ])
-        pg.add_productions("MakeDough", [
-            g["AddEgg"], g["AddFlour"], pi["MixDough"], pi["KneadDough"],
-        ])
-        pg.add_productions("MakeCookies", [
-            g["MakeDough"], pi["ShapeCookies"], pi["BakeCookies"],
-        ])
+        pg.add_productions(
+            "AddEgg",
+            [
+                pi["PickEgg"],
+                pi["BreakEgg"],
+            ],
+        )
+        pg.add_productions(
+            "AddFlour",
+            [
+                pi["PickFlour"],
+                pi["PourFlour"],
+            ],
+        )
+        pg.add_productions(
+            "MakeDough",
+            [
+                g["AddEgg"],
+                g["AddFlour"],
+                pi["MixDough"],
+                pi["KneadDough"],
+            ],
+        )
+        pg.add_productions(
+            "MakeCookies",
+            [
+                g["MakeDough"],
+                pi["ShapeCookies"],
+                pi["BakeCookies"],
+            ],
+        )
         return pg
 
     def test_grammar_has_correct_number_of_tokens_and_productions(self):

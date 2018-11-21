@@ -8,11 +8,12 @@ from ppg.grammar import PolicyGrammar, Goal, Token
 class PolicyGrammarNet(nn.Module):
     """This module assembles a multi-branch neural network to parametrize the probabilities used
     in the `PolicyGrammar` calculation."""
+
     def __init__(
-        self,
-        grammar: PolicyGrammar,
-        make_activation_net: Callable[[Token], nn.Module],
-        make_production_net: Callable[[Goal], nn.Module],
+            self,
+            grammar: PolicyGrammar,
+            make_activation_net: Callable[[Token], nn.Module],
+            make_production_net: Callable[[Goal], nn.Module],
     ):
         """Constructor.
         :param grammar

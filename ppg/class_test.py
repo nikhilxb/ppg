@@ -3,10 +3,12 @@ Just playing around with how classes interact; scratch notebook
 for grid world dev.
 """
 
+
 class foo_1(object):
 
     def __init__(self, position):
         self.position = position
+
 
 class foo_2(object):
 

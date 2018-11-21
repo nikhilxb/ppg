@@ -1,3 +1,13 @@
+appdirs==1.4.3
+attrs==18.2.0
+Click==7.0
 colorama==0.4.0
 crayons==0.1.2
+numpy==1.15.4
+pendulum==2.0.4
+python-dateutil==2.7.5
+pytzdata==2018.7
+six==1.11.0
+toml==0.10.0
 torch==0.4.1
+yapf==0.24.0
