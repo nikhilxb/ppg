@@ -119,10 +119,14 @@ class GridWorld:
         # Initialize empty world
         self.grid: List[List[Cell]] = []
         self.manipulators: List[Manipulator] = []
+        self.timestep: int = 0
+        self.successes: int = 0
 
     def reset(self) -> Observation:
         """Assign manipulators, goals, and objects to initial cell positions that do not overlap."""
         self.grid = [[Cell(r, c) for c in range(self.num_cols)] for r in range(self.num_rows)]
+        self.timestep = 0
+        self.successes = 0
 
         # Sample cell locations (r, c) without replacement
         num_points: int = self.num_manipulators + self.num_goals + self.num_objects
@@ -160,10 +164,14 @@ class GridWorld:
         done: bool = False
         info: Mapping[str, Any] = {}
 
+        self.timestep += 1
+
         # Perform PUT_DOWN actions
         for manipulator_id, action in enumerate(actions):
             if action == Action.PUT_DOWN:
-                reward += self._action_put_down(manipulator_id)
+                goal_reward, goal_success = self._action_put_down(manipulator_id)
+                reward += goal_reward
+                if goal_success: self.successes += 1
 
         # Perform PICK_UP actions
         for manipulator_id, action in enumerate(actions):
@@ -175,20 +183,23 @@ class GridWorld:
             if action in (Action.MOVE_UP, Action.MOVE_DOWN, Action.MOVE_LEFT, Action.MOVE_RIGHT):
                 self._action_move(manipulator_id, action)
 
-        # Construct observation
+        # Construct returns
         observation = self._construct_observation()
+        done = self.successes == self.num_objects or self.timestep >= self.max_timesteps
+        info["successes"] = self.successes
+        info["timestep"] = self.timestep
 
         return observation, reward, done, info
 
-    def _action_put_down(self, manipulator_id: int) -> float:
+    def _action_put_down(self, manipulator_id: int) -> Tuple[float, bool]:
         m: Manipulator = self.manipulators[manipulator_id]
-        if not m.has_object: return 0
+        if not m.has_object: return 0, False
         m.has_object = False
         if self.grid[m.row][m.col].is_goal:
-            return REWARD_GOAL
+            return REWARD_GOAL, True
         else:
             self.grid[m.row][m.col].has_object = True
-            return 0
+            return 0, False
 
     def _action_pick_up(self, manipulator_id: int) -> None:
         m: Manipulator = self.manipulators[manipulator_id]
@@ -262,12 +273,15 @@ class GridWorld:
         for m in self.manipulators:
             symbols[m.row][m.col] = "M"
 
-        strs = []
-        strs.append("\n".join(" ".join(col for col in row) for row in symbols))
+        strs = [
+            "timestep: {}".format(self.timestep),
+            "grid:",
+            indent("\n".join(" ".join(col for col in row) for row in symbols), " " * 4),
+        ]
 
         obs = self._construct_observation()
         for mid, (has_object, window) in enumerate(obs):
-            strs.append("manipulator {}".format(mid))
+            strs.append("manipulator {}:".format(mid))
             strs.append(indent("has_object: {}".format(has_object), " " * 4))
             strs.append(indent("window:", " " * 4))
             strs.append(
