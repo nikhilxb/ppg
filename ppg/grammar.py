@@ -131,18 +131,18 @@ class PolicyGrammar(object):
         else:
             store[name] = obj
 
-    def add_primitive(self, primitive: Union[str, Primitive]):
+    def add_primitive(self, primitive: Union[str, Primitive]) -> None:
         PolicyGrammar._add_token(self.primitives, primitive, Primitive)
 
-    def add_goal(self, goal: Union[str, Goal]):
+    def add_goal(self, goal: Union[str, Goal]) -> None:
         PolicyGrammar._add_token(self.goals, goal, Goal)
 
-    def add_production(self, goal: str, production: Token):
+    def add_production(self, goal: str, production: Token) -> None:
         if goal not in self.goals:
             raise ValueError("Invalid goal name in rule; got {}".format(goal))
         self.goals[goal].productions.append(production)
 
-    def add_productions(self, goal: str, productions: List[Token]):
+    def add_productions(self, goal: str, productions: List[Token]) -> None:
         for production in productions:
             self.add_production(goal, production)
 
@@ -158,20 +158,18 @@ class PolicyGrammar(object):
     def get_productions(self) -> Mapping[str, List[Token]]:
         return {name: goal.productions for name, goal in self.goals.items()}
 
-    def __str__(self):
+    def __str__(self) -> str:
 
         def color(s, is_primitive):
-            crayons.red(s) if is_primitive else crayons.blue(s)
+            return crayons.red(s) if is_primitive else crayons.blue(s)
 
-        prims = "\n".join(["    {}".format(color(pi, True)) for pi in self.primitives])
-        goals = "\n".join(["    {}".format(color(g, False)) for g in self.goals])
+        prims = "\n".join("    {}".format(color(pi, True)) for pi in self.primitives)
+        goals = "\n".join("    {}".format(color(g, False)) for g in self.goals)
         rules = "\n".join(
-            [
-                "    {} --> {}".format(
-                    color(gname, False),
-                    " | ".join([str(color(prod, prod.is_primitive)) for prod in gobj.productions]),
-                ) for gname, gobj in self.goals.items()
-            ]
+            "    {} --> {}".format(
+                color(gname, False),
+                " | ".join([str(color(prod, prod.is_primitive)) for prod in gobj.productions]),
+            ) for gname, gobj in self.goals.items()
         )
         return "Primitives:\n{}\nGoals:\n{}\nRules:\n{}".format(prims, goals, rules)
 

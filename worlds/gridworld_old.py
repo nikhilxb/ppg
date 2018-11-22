@@ -1,5 +1,6 @@
-#from typing import List, Tuple, Mapping, Callable, Union, Any, Optional, cast
 import numpy as np
+from typing import List, Tuple, Mapping, Callable, Union, Any, Optional, cast
+
 
 class Asset(object):
     """
@@ -12,26 +13,29 @@ class Asset(object):
     the real location. Note that the grid row depends on the specific subclass, so this coordinate is
     abstracted to the subclasses.
     """
+
     def __init__(self, location, name, grid_size):
         self.real_location = location
         self.name = name
         self.grid_size = grid_size
 
         # compute the grid column; the grid row depends on the specific subclass
-        self.grid_col = self.real_location[0]*grid_size[1] + self.real_location[1]
+        self.grid_col = self.real_location[0] * grid_size[1] + self.real_location[1]
+
 
 class Hand(Asset):
     """
     Constructs a Hand object, which represents the manipulators controlled by the algorithm.
     """
+
     def __init__(self, location, name, grid_size, holding=False):
         super(Hand, self).__init__(location, name, grid_size)
-        self.holding = holding # Boolean to indicate if hand is holding an object
-        self.goal_blocks = 0 # track how many blocks this hand has moved to the goal area
-        self.current_block = None # track which block is currently held, if any
+        self.holding = holding  # Boolean to indicate if hand is holding an object
+        self.goal_blocks = 0  # track how many blocks this hand has moved to the goal area
+        self.current_block = None  # track which block is currently held, if any
 
         # construct the grid location of the hand
-        self.grid_row = 2 # hand always given row 2
+        self.grid_row = 2  # hand always given row 2
         self.grid_location = (self.grid_row, self.grid_col)
 
     def print_summary(self):
@@ -45,10 +49,12 @@ class Hand(Asset):
         else:
             print("The hand is not holding an object")
 
+
 class Block(Asset):
     """
     Constructs a Block object, which represents an object the Hands can manipulate.
     """
+
     def __init__(self, location, name, grid_size, held=False):
         super(Block, self).__init__(location, name, grid_size)
         self.held = held
@@ -65,12 +71,14 @@ class Block(Asset):
         else:
             print("The hand is not holding an object")
 
+
 class Goal(Asset):
     """
     Constructs a Goal object, reprenting a goal area in the grid. Right now,
     Goal objects are passive: they only exist to indicate if an object should
     be removed from the board after being dropped by a hand.
     """
+
     def __init__(self, location, name, grid_size):
         super(Goal, self).__init__(location, name, grid_size)
         self.grid_row = 1
@@ -79,6 +87,7 @@ class Goal(Asset):
     def print_summary(self):
         print("Goal's real-world location " + str(self.real_location))
         print("Goal's grid location " + str(self.grid_location))
+
 
 class GridWorld(object):
     """
@@ -152,7 +161,7 @@ class GridWorld(object):
             self.goal_list.append(goal_to_add)
 
         # Construct the basic grid object
-        columns = self.size[0]*self.size[1]
+        columns = self.size[0] * self.size[1]
         # three rows: block, goal, hand
         self.grid = np.zeros((3, columns), dtype=int)
 
@@ -194,6 +203,7 @@ class GridWorld(object):
         - pick up
         - drop
     """
+
     def hand_move(self, hand, direction):
         """
         Move the passed hand object one cell up / down / left / right. The flag "direction" indicates
@@ -243,7 +253,7 @@ class GridWorld(object):
                 hand.real_location = (hand.real_location[0], new_coord)
 
             # update grid location
-            hand.grid_col = hand.real_location[0]*self.size[1] + hand.real_location[1]
+            hand.grid_col = hand.real_location[0] * self.size[1] + hand.real_location[1]
             hand.grid_location = (hand.grid_row, hand.grid_col)
 
             # finally, update the new grid coordinates

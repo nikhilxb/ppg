@@ -75,7 +75,11 @@ class GrammarTest(unittest.TestCase):
         for goal, num in {"AddEgg": 2, "AddFlour": 2, "MakeDough": 4, "MakeCookies": 3}.items():
             self.assertEqual(len(productions[goal]), num)
 
-    def test_grammar_computes_correct_forward(self):
+    def test_grammar_computes_forward(self):
+        pg: PolicyGrammar = GrammarTest.make_grammar()
+        self.assertTrue(True)  # TODO
+
+    def test_grammar_computed_forward_with_conditioning(self):
         pg: PolicyGrammar = GrammarTest.make_grammar()
         self.assertTrue(True)  # TODO
 

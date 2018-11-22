@@ -26,7 +26,6 @@ class ModelTest(unittest.TestCase):
         net = PolicyGrammarNet(pg, make_activation_net, make_production_net)
 
         print(net)
-        self.assertTrue(True)  # TODO
 
 
 if __name__ == "__main__":
