@@ -1,23 +1,81 @@
 import random
-from typing import List, Tuple, Mapping, Any
+from typing import List, Tuple, Mapping, Any, Iterable, Optional
 from textwrap import indent
+from collections import defaultdict
 from enum import Enum
 
 
 class Action(Enum):
-    STAY_PUT = 0
-    MOVE_UP = 1
-    MOVE_DOWN = 2
-    MOVE_LEFT = 3
-    MOVE_RIGHT = 4
-    PICK_UP = 5
-    PUT_DOWN = 6
+    """
+    Basic actions a manipulator can perform in the grid world.
+    """
+    MOVE_UP = 0
+    MOVE_DOWN = 1
+    MOVE_LEFT = 2
+    MOVE_RIGHT = 3
+    USE = 4
 
 
-Observation = List[Tuple[bool, List[List[Tuple]]]]
+class Cell(Enum):
+    """
+    Elements of the grid world environment. Consists of immovable objects (boundaries,
+    work stations) and movable "resource" objects (iron, grass, wood).
+    Integers correspond to the object's index in the tensor representation of the grid world.
+    """
+    # =============================================================================================
+    # Unmovable (workstations).
+    BOUNDARY = 0
+    TOOLSHED = 1
+    WORKBENCH = 2
+    FACTORY = 3
+
+    # =============================================================================================
+    # Movable (basic objects).
+    IRON = 4
+    GRASS = 5
+    WOOD = 6
+
+
+class Item(Enum):
+    """
+    All possible objects that can be carried by a manipulator: basic objects from the above class
+    (iron, grass, wood) and composite objects constructed by USING work stations and basic objects.
+    """
+    # Basic objects.
+    IRON = 0
+    GRASS = 1
+    WOOD = 2
+
+    # Composite objects.
+    PLANK = 3
+    STICK = 4
+    CLOTH = 5
+    ROPE = 6
+    BRIDGE = 7
+    SHEARS = 8
+    AXE = 9
+    BED = 10
+    LADDER = 11
+
+
+Observation = Tuple[Mapping[Item, int], List[List[Optional[Cell]]]]
 
 # Constants.
-# ----------
+# =============================================================================================
+
+# Defines basic objects and work stations necessary to construct composite objects.
+RECIPES = {
+    Item.PLANK: (Cell.TOOLSHED, [Item.WOOD]),
+    Item.STICK: (Cell.WORKBENCH, [Item.WOOD]),
+    Item.CLOTH: (Cell.FACTORY, [Item.GRASS]),
+    Item.ROPE: (Cell.TOOLSHED, [Item.GRASS]),
+    Item.BRIDGE: (Cell.FACTORY, [Item.IRON, Item.WOOD]),
+    Item.SHEARS: (Cell.WORKBENCH, [Item.STICK, Item.IRON]),
+    Item.AXE: (Cell.TOOLSHED, [Item.STICK, Item.IRON]),
+    Item.BED: (Cell.WORKBENCH, [Item.PLANK, Item.GRASS]),
+    Item.LADDER: (Cell.FACTORY, [Item.PLANK, Item.STICK]),
+}
+
 REWARD_GOAL = 1
 MOVE_DR_DC = {
     Action.MOVE_UP: (-1, 0),
@@ -28,34 +86,17 @@ MOVE_DR_DC = {
 WINDOW_RADIUS = 2
 
 
-class Cell:
-    """A single cell in the grid world."""
+class Agent:
+    """An agent that can USE objects."""
 
     def __init__(
             self,
             row: int,
             col: int,
-            is_goal: bool = False,
-            has_object: bool = False,
-    ):
-        self.row: int = row
-        self.col: int = col
-        self.is_goal: bool = is_goal
-        self.has_object: bool = has_object
-
-
-class Manipulator:
-    """A manipulator that can pick up objects."""
-
-    def __init__(
-            self,
-            row: int,
-            col: int,
-            has_object: bool = False,
     ):
         self.row: bool = row
         self.col: bool = col
-        self.has_object: bool = has_object
+        self.inventory: Mapping[Item, int] = defaultdict(int)
 
 
 class GridWorld:
@@ -99,65 +140,76 @@ class GridWorld:
             self,
             num_rows: int,
             num_cols: int,
-            num_manipulators: int = 2,
-            num_goals: int = 2,
-            num_objects: int = 5,
+            goal: Item,
             max_timesteps: int = 100,
             seed: int = 0,
     ):
         """Initializes the grid randomly conforming to the specifications."""
         self.num_rows: int = num_rows
         self.num_cols: int = num_cols
-        self.num_manipulators: int = num_manipulators
-        self.num_goals: int = num_goals
-        self.num_objects: int = num_objects
         self.max_timesteps: int = max_timesteps
+        self.goal: Item = goal
 
         self.seed: int = seed
         random.seed(seed)
 
         # Initialize empty world
         self.grid: List[List[Cell]] = []
-        self.manipulators: List[Manipulator] = []
+        self.agent: Agent = None
         self.timestep: int = 0
-        self.successes: int = 0
 
     def reset(self) -> Observation:
-        """Assign manipulators, goals, and objects to initial cell positions that do not overlap."""
-        self.grid = [[Cell(r, c) for c in range(self.num_cols)] for r in range(self.num_rows)]
+        """Assign agent and cells to initial cell positions that do not overlap."""
+        self.grid = [[None for c in range(self.num_cols)] for r in range(self.num_rows)]
         self.timestep = 0
-        self.successes = 0
 
-        # Sample cell locations (r, c) without replacement
-        num_points: int = self.num_manipulators + self.num_goals + self.num_objects
-        points: List[Tuple[int, int]] = [
-            divmod(i, self.num_cols)
-            for i in random.sample(range(self.num_rows * self.num_cols), num_points)
-        ]
-        curr: int = 0
+        # Sample cell locations (r, c) without replacement.
+        def sample_empty_cell():
+            empty_cell = None
+            while empty_cell is None:
+                r, c = random.randint(self.num_rows), random.randint(self.num_cols)
+                if grid[r][c] is None: empty_cell = (r, c)
+            return empty_cell
 
-        # Construct manipulators
-        self.manipulators = [
-            Manipulator(r, c) for r, c in points[curr:curr + self.num_manipulators]
-        ]
-        curr += self.num_manipulators
+        # Construct boundary
+        for r in range(self.num_rows):
+            self.grid[r][0] = Cell.BOUNDARY
+            self.grid[r][self.num_cols - 1] = Cell.BOUNDARY
+        for c in range(self.num_cols):
+            self.grid[0][c] = Cell.BOUNDARY
+            self.grid[self.num_rows - 1][c] = Cell.BOUNDARY
 
-        # Construct goal areas
-        for r, c in points[curr:curr + self.num_goals]:
-            self.grid[r][c].is_goal = True
-        curr += self.num_goals
+        # Construct agent
+        r, c = sample_empty_cell()
+        self.agent = Agent(r, c)
 
-        # Construct objects
-        for r, c in points[curr:curr + self.num_objects]:
-            self.grid[r][c].has_object = True
-        curr += self.num_objects
+        # Construct cells and items
+        all_workstations: Set[Cell] = set()
+        all_items: List[Item] = []
+
+        def get_all_items(item: Item):
+            # Base case: Item is primitive.
+            if item not in RECIPES: all_items.append(item)
+
+            # Recursive case: Item is composite.
+            workstation, subitems = RECIPES[item]
+            all_workstations.add(workstation)
+            for subitem in subitems:
+                get_all_items(subitem)
+
+        get_all_items(self.goal)
+        for w in all_workstations:
+            r, c = sample_empty_cell()
+            self.grid[r][c] = w
+        for i in all_items:
+            r, c = sample_empty_cell()
+            self.grid[r][c] = i
 
         return self._construct_observation()
 
-    def step(self, actions: List[Action]) -> Tuple[Observation, float, bool, Mapping]:
-        """Advance a single timestep given the actions of each manipulator.
-        :param actions
-            List of action identifiers, one for each manipulator.
+    def step(self, action: Action) -> Tuple[Observation, float, bool, Mapping]:
+        """Advance a single timestep given the actions of the agent.
+        :param action
         """
         observation: List = []
         reward: float = 0
@@ -166,61 +218,43 @@ class GridWorld:
 
         self.timestep += 1
 
-        # Perform PUT_DOWN actions
-        for manipulator_id, action in enumerate(actions):
-            if action == Action.PUT_DOWN:
-                goal_reward, goal_success = self._action_put_down(manipulator_id)
-                reward += goal_reward
-                if goal_success: self.successes += 1
-
-        # Perform PICK_UP actions
-        for manipulator_id, action in enumerate(actions):
-            if action == Action.PICK_UP:
-                self._action_pick_up(manipulator_id)
-
-        # Perform MOVE actions
-        for manipulator_id, action in enumerate(actions):
-            if action in (Action.MOVE_UP, Action.MOVE_DOWN, Action.MOVE_LEFT, Action.MOVE_RIGHT):
-                self._action_move(manipulator_id, action)
+        # Dispatch on action type
+        if action is Action.USE:
+            self._action_use()
+        elif action in (Action.MOVE_UP, Action.MOVE_DOWN, Action.MOVE_LEFT, Action.MOVE_RIGHT):
+            self._action_move(action)
 
         # Construct returns
         observation = self._construct_observation()
-        done = self.successes == self.num_objects or self.timestep >= self.max_timesteps
+        done = self.agent.inventory[self.goal] > 0 or self.timestep >= self.max_timesteps
         info["successes"] = self.successes
         info["timestep"] = self.timestep
 
         return observation, reward, done, info
 
-    def _action_put_down(self, manipulator_id: int) -> Tuple[float, bool]:
-        m: Manipulator = self.manipulators[manipulator_id]
-        if not m.has_object: return 0, False
-        m.has_object = False
-        if self.grid[m.row][m.col].is_goal:
-            return REWARD_GOAL, True
-        else:
-            self.grid[m.row][m.col].has_object = True
-            return 0, False
+    def _action_use(self) -> None:
+        r, c = self.agent.row, self.agent.col
+        cell = self.grid[r][c]
+        if cell is None: return
+        if cell in (Cell.IRON, Cell.GRASS, Cell.WOOD):
+            self.agent.inventory[cell] += 1
+            self.grid[r][c] = None
+        elif cell in (Cell.TOOLSHED, Cell.WORKBENCH, Cell.FACTORY):
+            for product, (workcell, ingredients) in RECIPES.items():
+                if cell is not workcell: continue
+                # All ingredients not present to make product.
+                if not all(self.agent.inventory[i] > 0 for i in ingredients): continue
+                for i in ingredients:
+                    self.agent.inventory[i] -= 1
+                self.agent.inventory[product] += 1
 
-    def _action_pick_up(self, manipulator_id: int) -> None:
-        m: Manipulator = self.manipulators[manipulator_id]
-        if not self.grid[m.row][m.col].has_object: return
-        self.grid[m.row][m.col].has_object = False
-        m.has_object = True
-
-    def _action_move(self, manipulator_id: int, action: Action) -> None:
-        m: Manipulator = self.manipulators[manipulator_id]
+    def _action_move(self, action: Action) -> None:
         dr, dc = MOVE_DR_DC[action]
-        r_new = m.row + dr
-        c_new = m.col + dc
-        if r_new < 0 or self.num_rows <= r_new: return
-        if c_new < 0 or self.num_cols <= c_new: return
-        if m.has_object:
-            if self.grid[r_new][c_new].has_object: return
-            for mid, m_other in self.manipulators:
-                if mid == manipulator_id: continue
-                if m_other.row == r_new and m_other.col == c_new and m_other.has_object: return
-        m.row = r_new
-        m.col = c_new
+        r_new = self.agent.row + dr
+        c_new = self.agent.col + dc
+        if self.grid[r_new][c_new] is Cell.BOUNDARY: return
+        self.agent.row = r_new
+        self.agent.col = c_new
 
     def _construct_observation(self) -> Observation:
         """Returns an observation of the environment state.
@@ -237,26 +271,19 @@ class GridWorld:
         surrounding cell states.
         """
 
-        def _construct_window(m: Manipulator) -> List[List[Tuple]]:
-            window = []
-            for r in range(m.row - WINDOW_RADIUS, m.row + WINDOW_RADIUS + 1):
-                is_row_valid = 0 <= r < self.num_rows
-                row = []
-                for c in range(m.col - WINDOW_RADIUS, m.col + WINDOW_RADIUS + 1):
-                    is_col_valid = 0 <= c < self.num_cols
-                    cell_state = (
-                        self.grid[r][c].has_object,
-                        self.grid[r][c].is_goal,
-                    ) if (is_row_valid and is_col_valid) else (
-                        False,
-                        False,
-                    )
-                    cell_manipulators = tuple(m.row == r and m.col == c for m in self.manipulators)
-                    row.append(cell_state + cell_manipulators)
-                window.append(row)
-            return window
+        window = []
+        for r in range(self.agent.row - WINDOW_RADIUS, self.agent.row + WINDOW_RADIUS + 1):
+            is_row_valid = 0 <= r < self.num_rows
+            row = []
+            for c in range(self.agent.col - WINDOW_RADIUS, self.agent.col + WINDOW_RADIUS + 1):
+                is_col_valid = 0 <= c < self.num_cols
+                cell_state: Optional[Cell] = self.grid[r][c] if (
+                    is_row_valid and is_col_valid
+                ) else None
+                row.append(cell_state)
+            window.append(row)
 
-        return [(m.has_object, _construct_window(m)) for m in self.manipulators]
+        return self.agent.inventory, window
 
     def __str__(self) -> str:
 
