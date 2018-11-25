@@ -1,4 +1,5 @@
 import random
+import crayons
 from typing import List, Tuple, Mapping, Any, Iterable, Optional
 from textwrap import indent
 from collections import defaultdict
@@ -23,14 +24,14 @@ class Cell(Enum):
     Integers correspond to the object's index in the tensor representation of the grid world.
     """
     # =============================================================================================
-    # Unmovable (workstations).
+    # Unmovable (workstation cells).
     BOUNDARY = 0
     TOOLSHED = 1
     WORKBENCH = 2
     FACTORY = 3
 
     # =============================================================================================
-    # Movable (basic objects).
+    # Movable (primitive item cells).
     IRON = 4
     GRASS = 5
     WOOD = 6
@@ -41,12 +42,12 @@ class Item(Enum):
     All possible objects that can be carried by a manipulator: basic objects from the above class
     (iron, grass, wood) and composite objects constructed by USING work stations and basic objects.
     """
-    # Basic objects.
+    # Primitive items.
     IRON = 0
     GRASS = 1
     WOOD = 2
 
-    # Composite objects.
+    # Composite items.
     PLANK = 3
     STICK = 4
     CLOTH = 5
@@ -167,8 +168,8 @@ class GridWorld:
         def sample_empty_cell():
             empty_cell = None
             while empty_cell is None:
-                r, c = random.randint(self.num_rows), random.randint(self.num_cols)
-                if grid[r][c] is None: empty_cell = (r, c)
+                r, c = random.randrange(self.num_rows), random.randrange(self.num_cols)
+                if self.grid[r][c] is None: empty_cell = (r, c)
             return empty_cell
 
         # Construct boundary
@@ -185,23 +186,31 @@ class GridWorld:
 
         # Construct cells and items
         all_workstations: Set[Cell] = set()
-        all_items: List[Item] = []
+        all_primitives: List[Cell] = []
 
-        def get_all_items(item: Item):
+        PRIMITIVE_ITEM_TO_CELL = {
+            Item.IRON: Cell.IRON,
+            Item.GRASS: Cell.GRASS,
+            Item.WOOD: Cell.WOOD,
+        }
+
+        def get_all_primitives(item: Item) -> None:
             # Base case: Item is primitive.
-            if item not in RECIPES: all_items.append(item)
+            if item not in RECIPES:
+                all_primitives.append(PRIMITIVE_ITEM_TO_CELL[item])
+                return
 
             # Recursive case: Item is composite.
             workstation, subitems = RECIPES[item]
             all_workstations.add(workstation)
             for subitem in subitems:
-                get_all_items(subitem)
+                get_all_primitives(subitem)
 
-        get_all_items(self.goal)
+        get_all_primitives(self.goal)
         for w in all_workstations:
             r, c = sample_empty_cell()
             self.grid[r][c] = w
-        for i in all_items:
+        for i in all_primitives:
             r, c = sample_empty_cell()
             self.grid[r][c] = i
 
@@ -226,8 +235,7 @@ class GridWorld:
 
         # Construct returns
         observation = self._construct_observation()
-        done = self.agent.inventory[self.goal] > 0 or self.timestep >= self.max_timesteps
-        info["successes"] = self.successes
+        done = (self.goal in self.agent.inventory) or (self.timestep >= self.max_timesteps)
         info["timestep"] = self.timestep
 
         return observation, reward, done, info
@@ -286,19 +294,36 @@ class GridWorld:
         return self.agent.inventory, window
 
     def __str__(self) -> str:
+        """
+        Sample grid:
 
-        def _cell_to_symbol(cell: Cell):
-            if cell.is_goal: return "G"
-            elif cell.has_object: return "O"
-            else: return "."
+        . G G . .
+        . . . O .
+        O . . . .
+        . . M . M
+
+        Red --> Can't pick up (workstation)
+        Green --> Can pick up (primitive item)
+        Blue --> Agent
+        """
+        CELL_TO_SYMBOL = {
+            None: ".",
+            Cell.BOUNDARY: "*",
+            Cell.TOOLSHED: str(crayons.red("T")),
+            Cell.WORKBENCH: str(crayons.red("W")),
+            Cell.FACTORY: str(crayons.red("F")),
+            Cell.IRON: str(crayons.green("I")),
+            Cell.GRASS: str(crayons.green("G")),
+            Cell.WOOD: str(crayons.green("W")),
+        }
 
         symbols = [
-            [_cell_to_symbol(self.grid[r][c])
+            [CELL_TO_SYMBOL[self.grid[r][c]]
              for c in range(self.num_cols)]
             for r in range(self.num_rows)
         ]
-        for m in self.manipulators:
-            symbols[m.row][m.col] = "M"
+
+        symbols[self.agent.row][self.agent.col] = str(crayons.blue("A"))
 
         strs = [
             "timestep: {}".format(self.timestep),
@@ -306,17 +331,18 @@ class GridWorld:
             indent("\n".join(" ".join(col for col in row) for row in symbols), " " * 4),
         ]
 
-        obs = self._construct_observation()
-        for mid, (has_object, window) in enumerate(obs):
-            strs.append("manipulator {}:".format(mid))
-            strs.append(indent("has_object: {}".format(has_object), " " * 4))
-            strs.append(indent("window:", " " * 4))
-            strs.append(
-                indent(
-                    "\n".join(
-                        ", ".join("".join(str(int(x)) for x in c) for c in r) for r in window
-                    ), " " * 8
-                )
+        inventory, window = self._construct_observation()
+        strs.append("agent:")
+        strs.append(indent("inventory:", " " * 4))
+        strs.append(
+            indent(
+                "\n".join("{}: {}".format(k, v) for k, v in inventory.items())
+                if len(inventory) > 0 else "None", " " * 8
             )
+        )
+        strs.append(indent("window:", " " * 4))
+        strs.append(
+            indent("\n".join(" ".join(CELL_TO_SYMBOL[c] for c in r) for r in window), " " * 8)
+        )
 
         return "\n".join(strs)
