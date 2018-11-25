@@ -28,5 +28,6 @@ class GridWorldTest(unittest.TestCase):
 
         self.assertTrue(done)
 
+
 if __name__ == "__main__":
     unittest.main()

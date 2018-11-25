@@ -4,7 +4,7 @@ from typing import List, Tuple, Mapping, Callable, Union, Any, Optional, cast
 from collections import defaultdict
 
 
-class Token(object):
+class Token:
     """This class defines an abstract token, which can be either a goal or policy primitive."""
 
     def __init__(
@@ -57,7 +57,7 @@ class Primitive(Token):
         self.action_probs: Callable = action_probs
 
 
-class PolicyGrammar(object):
+class PolicyGrammar:
     """This class specifies a probabilistic policy grammar, which decomposes the choice of an agent
     action using a hierarchy of goals and policy primitives.
 
