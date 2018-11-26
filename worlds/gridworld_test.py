@@ -19,6 +19,12 @@ class GridWorldTest(unittest.TestCase):
         print(gw)
         gw.step(Action.USE)
         print(gw)
+        gw.step(Action.MOVE_LEFT)
+        print(gw)
+        obs, reward, done, info = gw.step(Action.USE)
+        print(gw)
+
+        self.assertTrue(done)
 
     def test_gridworld_environment_should_terminate_after_max_timesteps(self):
         gw: GridWorld = GridWorld(5, 8, Item.PLANK, max_timesteps=1)
