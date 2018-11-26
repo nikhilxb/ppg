@@ -43,7 +43,7 @@ class Goal(Token):
 class Primitive(Token):
     """This class defines a policy primitive, which is a terminal token in the policy grammar.
 
-    A policy primitive has an additional `action_probs` property, which defines the probabilities of
+    A policy primitive has an additional `policy_probs` property, which defines the probabilities of
     taking each possible agent action under the policy.
     """
 
@@ -51,10 +51,10 @@ class Primitive(Token):
             self,
             name: str,
             activation_prob: Callable = lambda state: 0,
-            action_probs: Callable = lambda state: [0],
+            policy_probs: Callable = lambda state: [0],
     ):
         super().__init__(name, True, activation_prob=activation_prob)
-        self.action_probs: Callable = action_probs
+        self.policy_probs: Callable = policy_probs
 
 
 class PolicyGrammar:
@@ -190,7 +190,7 @@ class PolicyGrammar:
             # Base case: Policy primitives return probs over action
             if root.is_primitive:
                 root = cast(Primitive, root)
-                return root.activation_prob(agent_state) * root.action_probs(agent_state)
+                return root.activation_prob(agent_state) * root.policy_probs(agent_state)
 
             # Recursive case: Traverse all possible productions from goal.
             root = cast(Goal, root)

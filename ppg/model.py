@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 from typing import Callable, Mapping, List
-from ppg.grammar import PolicyGrammar, Goal, Token
+from ppg.grammar import PolicyGrammar, Goal, Token, Primitive
 
 
 class PolicyGrammarNet(nn.Module):
@@ -14,6 +14,7 @@ class PolicyGrammarNet(nn.Module):
             grammar: PolicyGrammar,
             make_activation_net: Callable[[Token], nn.Module],
             make_production_net: Callable[[Goal], nn.Module],
+            make_policy_net: Callable[[Primitive], nn.Module],
     ):
         """Constructor.
         :param grammar
@@ -35,16 +36,28 @@ class PolicyGrammarNet(nn.Module):
                 `Tensor[N_productions]`
                     Production probabilities for each production. Each goal has a different number
                     of productions.
+        :param make_policy_net
+            Function to generate a network that transforms agent state to action probabilities:
+            Input:
+                `Tensor[D_agent_state]`
+                    Agent state.
+            Output:
+                `Tensor[D_agent_actions]`
+                    Agent actions.
         """
         super().__init__()
         self.grammar: PolicyGrammar = grammar
 
         # Construct networks for primitives
         self.activation_nets_primitives: Mapping[str, nn.Module] = nn.ModuleDict()
+        self.policy_nets_primitives: Mapping[str, nn.Module] = nn.ModuleDict()
         for name, primitive in self.grammar.get_primitives().items():
             activation_net: nn.Module = make_activation_net(primitive)
+            policy_net: nn.Module = make_policy_net(primitive)
             self.activation_nets_primitives[name] = activation_net
+            self.policy_nets_primitives[name] = policy_net
             primitive.activation_prob = lambda state: activation_net(state)
+            primitive.policy_probs = lambda state: policy_net(state)
 
         # Construct networks for goals
         self.activation_nets_goals: Mapping[str, nn.Module] = nn.ModuleDict()

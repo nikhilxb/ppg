@@ -1,4 +1,5 @@
 import unittest
+import numpy as np
 from typing import Mapping
 from ppg.grammar import PolicyGrammar, Token, Primitive, Goal
 
@@ -6,8 +7,40 @@ from ppg.grammar import PolicyGrammar, Token, Primitive, Goal
 class GrammarTest(unittest.TestCase):
 
     @staticmethod
-    def make_grammar():
-        """Construct an example policy grammar."""
+    def make_grammar_small():
+        """Construct an small example policy grammar."""
+        pg = PolicyGrammar(
+            primitives=[
+                "Prim1",
+                "Prim2",
+                "Prim3",
+            ],
+            goals=[
+                "Goal1",
+                "Goal2",
+            ],
+        )
+        pi, g = pg.get_tokens()
+        pg.add_productions(
+            "Goal1",
+            [
+                g["Goal2"],
+                pi["Prim3"],
+            ],
+        )
+        pg.add_productions(
+            "Goal2",
+            [
+                pi["Prim1"],
+                pi["Prim2"],
+            ],
+        )
+
+        return pg
+
+    @staticmethod
+    def make_grammar_large():
+        """Construct a large example policy grammar."""
         pg = PolicyGrammar(
             primitives=[
                 "PickEgg",
@@ -61,7 +94,7 @@ class GrammarTest(unittest.TestCase):
         return pg
 
     def test_grammar_has_correct_number_of_tokens_and_productions(self):
-        pg: PolicyGrammar = GrammarTest.make_grammar()
+        pg: PolicyGrammar = GrammarTest.make_grammar_large()
         print(pg)
 
         goals: Mapping[str, Goal] = pg.get_goals()
@@ -76,11 +109,32 @@ class GrammarTest(unittest.TestCase):
             self.assertEqual(len(productions[goal]), num)
 
     def test_grammar_computes_forward(self):
-        pg: PolicyGrammar = GrammarTest.make_grammar()
-        self.assertTrue(True)  # TODO
+        pg: PolicyGrammar = GrammarTest.make_grammar_small()
+        print(pg)
+
+        pi, g = pg.get_tokens()
+
+        pi["Prim1"].activation_prob = lambda state: 1.0
+        pi["Prim1"].policy_probs = lambda state: np.array([0.5, 0.5])
+
+        pi["Prim2"].activation_prob = lambda state: 1.0
+        pi["Prim2"].policy_probs = lambda state: np.array([0.7, 0.3])
+
+        pi["Prim3"].activation_prob = lambda state: 0.8
+        pi["Prim3"].policy_probs = lambda state: np.array([0.1, 0.9])
+
+        g["Goal1"].activation_prob = lambda state: 1.0
+        g["Goal1"].production_probs = lambda state: np.array([0.8, 0.2])
+
+        g["Goal2"].activation_prob = lambda state: 1.0
+        g["Goal2"].production_probs = lambda state: np.array([0.6, 0.4])
+
+        policy_weights = pg.forward("Goal1", None)
+        self.assertAlmostEqual(policy_weights[0], 0.48)
+        self.assertAlmostEqual(policy_weights[1], 0.48)
 
     def test_grammar_computed_forward_with_conditioning(self):
-        pg: PolicyGrammar = GrammarTest.make_grammar()
+        pg: PolicyGrammar = GrammarTest.make_grammar_large()
         self.assertTrue(True)  # TODO
 
 

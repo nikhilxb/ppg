@@ -8,8 +8,9 @@ from ppg.model import PolicyGrammarNet
 class ModelTest(unittest.TestCase):
 
     def test_model_correctly_parameterizes_grammer(self):
-        pg: PolicyGrammar = GrammarTest.make_grammar()
+        pg: PolicyGrammar = GrammarTest.make_grammar_small()
         D_agent_state = 10
+        D_agent_actions = 5
 
         def make_activation_net(token: Token) -> nn.Module:
             return nn.Sequential(
@@ -23,7 +24,13 @@ class ModelTest(unittest.TestCase):
                 nn.Softmax(),
             )
 
-        net = PolicyGrammarNet(pg, make_activation_net, make_production_net)
+        def make_policy_net(primitive: Primitive) -> nn.Module:
+            return nn.Sequential(
+                nn.Linear(D_agent_state, D_agent_actions),
+                nn.Softmax(),
+            )
+
+        net = PolicyGrammarNet(pg, make_activation_net, make_production_net, make_policy_net)
 
         print(net)
 
