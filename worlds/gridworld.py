@@ -1,3 +1,7 @@
+"""
+This gridworld is based loosely on ideas and code used in the paper "Modular Multitask
+Reinforcement Learning with Policy Sketches", by Andreas et al.
+"""
 import random
 import crayons
 from typing import List, Tuple, Mapping, Any, Iterable, Optional
@@ -5,10 +9,6 @@ from textwrap import indent
 from collections import defaultdict
 from enum import Enum
 
-"""
-This gridworld is based loosely on ideas and code used in the paper "Modular Multitask
-Reinforcement Learning with Policy Sketches", by Andreas et al.
-"""
 
 class Action(Enum):
     """
@@ -40,6 +40,7 @@ class Cell(Enum):
     GRASS = 5
     WOOD = 6
 
+
 class Item(Enum):
     """
     All possible objects that can be carried by a manipulator: primitive items from the above class
@@ -60,6 +61,7 @@ class Item(Enum):
     AXE = 9
     BED = 10
     LADDER = 11
+
 
 # Constants.
 # =============================================================================================
