@@ -165,6 +165,7 @@ class GridWorld:
           timestep limit.
         - A positive reward is conferred when the GOAL item is produced.
     """
+    N_ACTIONS = len(Action)
 
     def __init__(
             self,
