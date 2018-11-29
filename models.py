@@ -22,9 +22,7 @@ class GridWorldAgent(nn.Module):
         self.state_net_layers = 1
         self.state_net_batch = 1
         self.state_net_hidden_dim = state_net_hidden_dim
-        self.hidden_state = torch.new_zeros(
-            (self.state_net_layers, self.state_net_batch, self.state_net_hidden_dim)
-        )
+        self.hidden_state = torch.new_zeros((self.state_net_layers, self.state_net_batch, self.state_net_hidden_dim))
 
         def make_activation_net(token: Token) -> nn.Module:
             return nn.Sequential(
@@ -57,9 +55,7 @@ class GridWorldAgent(nn.Module):
 
     def reset(self):
         # Reset the agent's state net
-        self.hidden_state = torch.new_zeros(
-            (self.state_net_layers, self.state_net_batch, self.state_net_hidden_dim)
-        )
+        self.hidden_state = torch.new_zeros((self.state_net_layers, self.state_net_batch, self.state_net_hidden_dim))
 
     def forward(
             self,
@@ -81,15 +77,8 @@ class Baseline(nn.Module):
     def __init__(
             self,
             agent_state_dim: int = 100,
-            baseline_net_hidden_dim: int = 32,
+            policy_net_hidden_dim: int = 32,
             agent_action_dim: int = 6,
     ):
-        # NOTE: the agent action dimension is now defaulted to 6, because
-        # Andreas et al augument their action space with a STOP token
-        def make_baseline_net(primitive: Primitive) -> nn.Module:
-            return nn.Sequential(
-                nn.Linear(agent_state_dim, baseline_net_hidden_dim),
-                nn.ReLU(),
-                nn.Linear(baseline_net_hidden_dim, agent_action_dim),
-                nn.Softmax(),
-            )
+    # NOTE: the agent action dimension is now defaulted to 6, because
+    # Andreas et al augument their action space with a STOP token
