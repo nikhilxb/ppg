@@ -47,8 +47,6 @@ class GridWorldAgent(nn.Module):
         self.state_net = nn.Sequential(nn.Linear(agent_state_dim, state_net_hidden_dim),
                                       )  # TODO: Make into RNN
 
-    def reset_hidden(self):
-
     def forward(
             self,
             observation: torch.Tensor,
