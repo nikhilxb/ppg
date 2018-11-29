@@ -1,148 +1,179 @@
 import argparse
 import pendulum
 import torch
-import torch.distributions as dist
 import torch.nn as nn
+import torch.distributions as dist
+from typing import List, Any
+from collections import namedtuple
 from ppg.grammar import PolicyGrammar
-from ppg.model import PolicyGrammarNet
+from ppg.models import GridWorldAgent
 from worlds.gridworld import Item, GridWorld
 
 # ==================================================================================================
-# Command-line arguments.
+# Definitions.
 
-parser = argparse.ArgumentParser()
 
-# Title.
-# ------
+def define_args() -> Any:
+    parser = argparse.ArgumentParser()
 
-parser.add_argument(
-    "--experiment_name",
-    default="untitled-{}".format(pendulum.now("America/Los_Angeles").strftime("%Y-%m-%d-%H-%M-%S")),
-)
+    # Experiment options.
+    parser.add_argument(
+        "--experiment_name",
+        default="exp-{}".format(pendulum.now("America/Los_Angeles").strftime("%Y-%m-%d-%H-%M-%S")),
+        help="Name of directory to save experiment outputs.",
+    )
+    parser.add_argument(
+        "--experiments_dir",
+        help="Directory where all experiment directories ar stored.",
+        default="experiments/",
+    )
 
-parser.add_argument("--arg_name", type=int, default=1)
+    # GridWorld options.
+    parser.add_argument(
+        "--grid_row_num",
+        type=int,
+        default=10,
+    )
+    parser.add_argument(
+        "--grid_col_num",
+        type=int,
+        default=10,
+    )
 
-args = parser.parse_args()
+    # Agent options.
+    parser.add_argument(
+        "--agent_state_dim",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--agent_action_dim",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--activation_net_hidden_dim",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--production_net_hidden_dim",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--policy_net_hidden_dim",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--state_net_hidden_dim",
+        type=int,
+        default=32,
+    )
+    parser.add_argument(
+        "--critic_net_hidden_dim",
+        type=int,
+        default=32,
+    )
+
+    return parser.parse_args()
+
+
+def define_grammar() -> PolicyGrammar:
+    grammar = PolicyGrammar(
+        primitives=[
+            "UseToolshed",
+            "UseWorkbench",
+            "UseFactory",
+            "GetIron",
+            "GetGrass",
+            "GetWood",
+        ],
+        goals=[
+            "MakePlank",
+            "MakeStick",
+            "MakeCloth",
+            "MakeRope",
+            "MakeBridge",
+            "MakeShears",
+            "MakeAxe",
+            "MakeBed",
+            "MakeLadder",
+        ],
+    )
+
+    # yapf: disable
+    pi, g = grammar.get_tokens()
+    grammar.add_productions("MakePlank",  [pi["GetWood"], pi["UseToolshed"]])
+    grammar.add_productions("MakeStick",  [pi["GetWood"], pi["UseWorkbench"]])
+    grammar.add_productions("MakeCloth",  [pi["GetGrass"], pi["UseFactory"]])
+    grammar.add_productions("MakeRope",   [pi["GetGrass"], pi["UseToolshed"]])
+    grammar.add_productions("MakeBridge", [pi["GetIron"], pi["GetWood"], pi["UseFactory"]])
+    grammar.add_productions("MakeShears", [g["MakeStick"], pi["UseToolshed"]])
+    grammar.add_productions("MakeAxe",    [g["MakeStick"], pi["GetIron"], pi["UseToolshed"]])
+    grammar.add_productions("MakeBed",    [g["MakePlank"], pi["GetGrass"], pi["UseWorkbench"]])
+    grammar.add_productions("MakeLadder", [g["MakePlank"], g["MakeStick"], pi["UseFactory"]])
+    # yapf: enable
+    return grammar
+
+
+# A task attempts to solve a particular world using a policy constructed for a particular
+# top-level goal. The complexity of a task is how many primitives need to be sequentially executed.
+Task = namedtuple("Task", ["goal", "world", "complexity"])
+
+
+def define_tasks(args) -> List[Task]:
+    # yapf: disable
+    tasks = [
+        Task("MakePlank",  GridWorld(args.grid_row_num, args.grid_col_num, Item.PLANK),  2),
+        Task("MakeStick",  GridWorld(args.grid_row_num, args.grid_col_num, Item.STICK),  2),
+        Task("MakeCloth",  GridWorld(args.grid_row_num, args.grid_col_num, Item.CLOTH),  2),
+        Task("MakeRope",   GridWorld(args.grid_row_num, args.grid_col_num, Item.ROPE),   2),
+        Task("MakeBridge", GridWorld(args.grid_row_num, args.grid_col_num, Item.BRIDGE), 3),
+        Task("MakeShears", GridWorld(args.grid_row_num, args.grid_col_num, Item.SHEARS), 3),
+    ]
+    # yapf: enable
+    return tasks
+
 
 # ==================================================================================================
-# Policy grammar definition.
+# Training process.
 
-pg = PolicyGrammar(
-    primitives=[
-        "UseToolshed",
-        "UseWorkbench",
-        "UseFactory",
-        "GetIron",
-        "GetGrass",
-        "GetWood",
-    ],
-    goals=[
-        "MakePlank",
-        "MakeStick",
-        "MakeCloth",
-        "MakeRope",
-        "MakeBridge",
-        "MakeShears",
-        "MakeAxe",
-        "MakeBed",
-        "MakeLadder",
-    ],
-)
+# Experience gained from a single transition.
+#     state:  torch.Tensor
+#     action: gridworld.Action
+#     reward: float
+Transition = namedtuple("Transition", ["state", "action", "reward"])
 
-pi, g = pg.get_tokens()
-pg.add_productions("MakePlank", [pi["GetWood"], pi["UseToolshed"]])
-pg.add_productions("MakeStick", [pi["GetWood"], pi["UseWorkbench"]])
-pg.add_productions("MakeCloth", [pi["GetGrass"], pi["UseFactory"]])
-pg.add_productions("MakeRope", [pi["GetGrass"], pi["UseToolshed"]])
-pg.add_productions("MakeBridge", [pi["GetIron"], pi["GetWood"], pi["UseFactory"]])
-pg.add_productions("MakeShears", [g["MakeStick"], pi["UseToolshed"]])
-pg.add_productions("MakeAxe", [g["MakeStick"], pi["GetIron"], pi["UseToolshed"]])
-pg.add_productions("MakeBed", [g["MakePlank"], pi["GetGrass"], pi["UseWorkbench"]])
-pg.add_productions("MakeLadder", [g["MakePlank"], g["MakeStick"], pi["UseFactory"]])
-print(pg)
-
-# ==================================================================================================
-# Training functions.
-
-class GridWorldModel(nn.Module):
-
-    def __init__(
-            self,
-            grammar: PolicyGrammar,
-            tasks: List[Task],
-    ):
-        self.grammar: PolicyGrammar = grammar
-        self.tasks: List[Task] = tasks
-
-        def make_activation_net(token: Token) -> nn.Module:
-            return nn.Sequential(
-                nn.Linear(D_agent_state, args.dim_activation_hidden),
-                nn.ReLU(),
-                nn.Linear(args.dim_activation_hidden, 1),
-                nn.Sigmoid(),
-            )
-
-        def make_production_net(goal: Goal) -> nn.Module:
-            return nn.Sequential(
-                nn.Linear(D_agent_state, args.dim_production_hidden),
-                nn.ReLU(),
-                nn.Linear(args.dim_production_hidden, len(goal.productions)),
-                nn.Softmax(),
-            )
-
-        def make_policy_net(primitive: Primitive) -> nn.Module:
-            return nn.Sequential(
-                nn.Linear(D_agent_state, args.dim_policy_hidden),
-                nn.ReLU(),
-                nn.Linear(args.dim_policy_hidden, D_agent_actions),
-                nn.Softmax(),
-            )
-
-        self.policy_net = PolicyGrammarNet(
-            pg, make_activation_net, make_production_net, make_policy_net
-        )
-        self.critic_nets = nn.ModuleList(
-            [nn.Sequential(nn.Linear(D_agent_state, args.dim_critic_hidden), nn.ReLU(), nn.Linear(args.dim_critic_hidden, 1),) for task in self.tasks]
-        )
-        self.state_net = nn.Sequential(
-            nn.Linear()
-        )  # TODO: Make into RNN
-
-        # TODO: state net RNN
-        # Implement training step and loop
-
-    def forward(self, observation):
-        state = self.state_net(observation)
-
+# An entire rollout of transitions for an episode.
+Trajectory = List[Transition]
 
 Rollout = namedtuple("Rollout", ["task_idx", "trajectory"])
+
 # task_idx: int
 # trajectory: List[Sample]
-Sample = namedtuple("Sample", ["state", "action", "reward"]) # Tuple[torch.Tensor, Action, float]
 
-def do_rollout(
-        task: Task,
-        model: GridWorldModel
-):
+
+def do_rollout(model: GridWorldAgent, task: Task):
     # Use the algorithm to rollout a trajectory, given the task
     pass
 
 
-def calculate_means(
-        dataset: List[Rollout],
-        active_tasks: List[Task]
-):
+def calculate_means(dataset: List[Rollout], active_tasks: List[Task]):
     cumulative_rewards = [0.0] * len(active_tasks)
     counts = [0] * len(active_tasks)
     for rollout in dataset:
         cumulative_rewards[rollout.task_idx] += sum(sample.reward for sample in rollout.trajectory)
         counts[rollout.task_idx] += 1
-    means = torch.tensor([float(cumulative_rewards[i])/counts[i] for i in range(len(active_tasks))])
+    means = torch.tensor(
+        [float(cumulative_rewards[i]) / counts[i] for i in range(len(active_tasks))]
+    )
     return means
 
 
 def train_step(
-        model: GridWorldModel,
+        model: GridWorldAgent,
         active_tasks: List[Task],
         curriculum,
         max_num_rollouts=100,
@@ -160,23 +191,12 @@ def train_step(
     return calculate_means(dataset, tasks)
 
 
-"""
-TODO:
-train_loop
-
-train_step
-- sample task
-- do rollouts
-- update policy / critic
-"""
-
-def update_curriculum(
-        means: torch.tensor
-):
+def update_curriculum(means: torch.tensor):
     return dist.Categorical(1 - means)
 
+
 def train_loop(
-        model: GridWorldModel,
+        model: GridWorldAgent,
         tasks: List[Task],
         max_task_complexity=50,
         good_task_reward=0.7,
@@ -196,24 +216,30 @@ def train_loop(
         curr_task_complexity += 1
 
 
-# From Andreas et al.
-NUM_ROWS = 10
-NUM_COLS = 10
-
-Task = namedtuple("Task", ["goal", "world", "complexity"])
+# ==================================================================================================
 
 
 def main():
-    tasks: List[Task] = [
-        Task("MakePlank",  GridWorld(NUM_ROWS, NUM_COLS, Item.PLANK), 2),
-        Task("MakeStick",  GridWorld(NUM_ROWS, NUM_COLS, Item.STICK), 2),
-        Task("MakeCloth",  GridWorld(NUM_ROWS, NUM_COLS, Item.CLOTH), 2),
-        Task("MakeRope",   GridWorld(NUM_ROWS, NUM_COLS, Item.ROPE), 2),
-        Task("MakeBridge", GridWorld(NUM_ROWS, NUM_COLS, Item.BRIDGE), 3),
-        Task("MakeShears", GridWorld(NUM_ROWS, NUM_COLS, Item.SHEARS), 3),
-    ]
-    model = GridWorldModel(pg, tasks)
-    train_loop(model, tasks)
+    args = define_args()
+    grammar: PolicyGrammar = define_grammar()
+    tasks: List[Task] = define_tasks(args)
+    agent: GridWorldAgent = GridWorldAgent(
+        grammar,
+        args.agent_state_dim,
+        args.agent_action_dim,
+        args.activation_net_hidden_dim,
+        args.production_net_hidden_dim,
+        args.policy_net_hidden_dim,
+        args.state_net_hidden_dim,
+    )
+    critic: nn.Module = nn.Sequential(
+        nn.Linear(agent_state_dim, policy_net_hidden_dim),
+        nn.ReLU(),
+        nn.Linear(policy_net_hidden_dim, agent_action_dim),
+        nn.Softmax(),
+    )
+
+    train_loop(agent, tasks)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class Action(Enum):
 class Cell(Enum):
     """
     Elements of the grid world environment. Consists of immovable objects (boundaries,
-    work stations) and movable "primivite" items (iron, grass, wood).
+    work stations) and movable "primitive" items (iron, grass, wood).
     Integers correspond to the object's index in the tensor representation of the grid world.
     """
     # Boundary cell.
@@ -85,9 +85,6 @@ RECIPES = {
 # Reward for producing goal item.
 REWARD_GOAL = 1
 
-# How many cells, in each direction around agent, to include in agent observation.
-WINDOW_RADIUS = 2
-
 # Change in row, col for each move action.
 MOVE_DR_DC = {
     Action.MOVE_UP: (-1, 0),
@@ -143,11 +140,11 @@ class GridWorld:
 
     . : EMPTY cell. Traversable.
     * : BOUNDARY cell. Untraversable.
-    A : AGENT. Moves around in environment, consuming items and producing new items. (Blue in console)
+    A : AGENT. Moves around in environment, consuming items and producing new items.
     T, W, F : Toolshed, workbench, factory cells. WORKSTATION cells are unconsumable and are used by
-        the agent to produce new composite items from existing items in its inventory. (Red in console)
+        the agent to produce new composite items from existing items in its inventory.
     I, G, W : Iron, grass, wood cells. PRIMITIVE item cells are consumable and add the primitive
-        item to the agent's inventory. (Green in console; note that workstation "W" and primitive "W" are colored differently)
+        item to the agent's inventory.
 
     The agent has the following action space:
 
@@ -173,12 +170,14 @@ class GridWorld:
             num_cols: int,
             goal: Item,
             max_timesteps: int = 100,
+            window_radius: int = 2,
             seed: int = 0,
     ):
         """Initializes the grid randomly conforming to the specifications."""
         self.num_rows: int = num_rows
         self.num_cols: int = num_cols
         self.max_timesteps: int = max_timesteps
+        self.window_radius = 2,
         self.goal: Item = goal
 
         self.seed: int = seed
@@ -264,7 +263,7 @@ class GridWorld:
 
     def _action_use(self) -> None:
         """
-        Pick up or use primitive items and workstations found in gridworld.
+        Pick up primitive items and or use workstations to produce composite items from inventory.
         """
         r, c = self.agent.row, self.agent.col
         cell = self.grid[r][c]
@@ -274,8 +273,8 @@ class GridWorld:
             self.agent.inventory[PRIMITIVE_CELL_TO_ITEM[cell]] += 1
             self.grid[r][c] = None
         elif cell in (Cell.TOOLSHED, Cell.WORKBENCH, Cell.FACTORY):
-            # Current cell is a workstation. Consider only products producable at this specific
-            # workstation, and produce the product if all ingredients are available.
+            # Current cell is a workstation. Consider only composite items producible at this
+            # workstation and produce them if all requisite ingredients are owned.
             for product, (workcell, ingredients) in RECIPES.items():
                 if cell is not workcell: continue
                 if not all(self.agent.inventory[i] > 0 for i in ingredients): continue
@@ -296,20 +295,17 @@ class GridWorld:
 
     def _construct_observation(self) -> Observation:
         """
-        Returns an observation of the environment state.
-
-        The agent has a window of observation around itself (a 2 *  WINDOW_RADIUS + 1 cell
-        square), so it can access whether the surrounding cells contain primitive items or workstations.
-
-        Returns the agent's inventory of primitive or composite items, and a matrix representation of the
-        agent's observation window that can be printed to the console/used to update the agent's next actions.
+        Returns an observation of the state, which includes the agent inventory and an
+        observation window of the environment (a square with 2 * self.window_radius + 1
+        cells on each side).
         """
-
         window = []
-        for r in range(self.agent.row - WINDOW_RADIUS, self.agent.row + WINDOW_RADIUS + 1):
+        for r in range(self.agent.row - self.window_radius,
+                       self.agent.row + self.window_radius + 1):
             is_row_valid = 0 <= r < self.num_rows
             row = []
-            for c in range(self.agent.col - WINDOW_RADIUS, self.agent.col + WINDOW_RADIUS + 1):
+            for c in range(self.agent.col - self.window_radius,
+                           self.agent.col + self.window_radius + 1):
                 is_col_valid = 0 <= c < self.num_cols
                 cell_state: Optional[Cell] = self.grid[r][c] if (
                     is_row_valid and is_col_valid
@@ -320,13 +316,11 @@ class GridWorld:
         return self.agent.inventory, window
 
     def __str__(self) -> str:
-
         symbols = [
             [CELL_TO_SYMBOL[self.grid[r][c]]
              for c in range(self.num_cols)]
             for r in range(self.num_rows)
         ]
-
         symbols[self.agent.row][self.agent.col] = str(crayons.blue("A"))
 
         strs = [

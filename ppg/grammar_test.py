@@ -1,7 +1,8 @@
 import unittest
 import numpy as np
+import torch.nn as nn
 from typing import Mapping
-from ppg.grammar import PolicyGrammar, Token, Primitive, Goal
+from ppg.grammar import PolicyGrammar, Token, Primitive, Goal, PolicyGrammarNet
 
 
 class GrammarTest(unittest.TestCase):
@@ -136,6 +137,33 @@ class GrammarTest(unittest.TestCase):
     def test_grammar_computed_forward_with_conditioning(self):
         pg: PolicyGrammar = GrammarTest.make_grammar_large()
         self.assertTrue(True)  # TODO
+
+    def test_model_correctly_parameterizes_grammer(self):
+        pg: PolicyGrammar = GrammarTest.make_grammar_small()
+        D_agent_state = 10
+        D_agent_actions = 5
+
+        def make_activation_net(token: Token) -> nn.Module:
+            return nn.Sequential(
+                nn.Linear(D_agent_state, 1),
+                nn.Sigmoid(),
+            )
+
+        def make_production_net(goal: Goal) -> nn.Module:
+            return nn.Sequential(
+                nn.Linear(D_agent_state, len(goal.productions)),
+                nn.Softmax(),
+            )
+
+        def make_policy_net(primitive: Primitive) -> nn.Module:
+            return nn.Sequential(
+                nn.Linear(D_agent_state, D_agent_actions),
+                nn.Softmax(),
+            )
+
+        net = PolicyGrammarNet(pg, make_activation_net, make_production_net, make_policy_net)
+
+        print(net)
 
 
 if __name__ == "__main__":
