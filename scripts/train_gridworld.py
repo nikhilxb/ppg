@@ -1,13 +1,16 @@
 import argparse
+from collections import namedtuple
+from typing import List, Any
+
 import pendulum
 import torch
-import torch.nn as nn
 import torch.distributions as dist
-from typing import List, Any
-from collections import namedtuple
+import torch.nn as nn
+
+from models import GridWorldAgent
 from ppg.grammar import PolicyGrammar
-from ppg.models import GridWorldAgent
 from worlds.gridworld import Item, GridWorld
+
 
 # ==================================================================================================
 # Definitions.
@@ -29,53 +32,17 @@ def define_args() -> Any:
     )
 
     # GridWorld options.
-    parser.add_argument(
-        "--grid_row_num",
-        type=int,
-        default=10,
-    )
-    parser.add_argument(
-        "--grid_col_num",
-        type=int,
-        default=10,
-    )
+    parser.add_argument("--grid_row_num", type=int, default=10)
+    parser.add_argument("--grid_col_num", type=int, default=10)
 
     # Agent options.
-    parser.add_argument(
-        "--agent_state_dim",
-        type=int,
-        default=32,
-    )
-    parser.add_argument(
-        "--agent_action_dim",
-        type=int,
-        default=32,
-    )
-    parser.add_argument(
-        "--activation_net_hidden_dim",
-        type=int,
-        default=32,
-    )
-    parser.add_argument(
-        "--production_net_hidden_dim",
-        type=int,
-        default=32,
-    )
-    parser.add_argument(
-        "--policy_net_hidden_dim",
-        type=int,
-        default=32,
-    )
-    parser.add_argument(
-        "--state_net_hidden_dim",
-        type=int,
-        default=32,
-    )
-    parser.add_argument(
-        "--critic_net_hidden_dim",
-        type=int,
-        default=32,
-    )
+    parser.add_argument("--agent_state_dim", type=int, default=32)
+    parser.add_argument("--agent_action_dim", type=int, default=32)
+    parser.add_argument("--activation_net_hidden_dim", type=int, default=32)
+    parser.add_argument("--production_net_hidden_dim", type=int, default=32)
+    parser.add_argument("--policy_net_hidden_dim", type=int, default=32)
+    parser.add_argument("--state_net_hidden_dim", type=int, default=32)
+    parser.add_argument("--critic_net_hidden_dim", type=int, default=32)
 
     return parser.parse_args()
 
@@ -233,10 +200,9 @@ def main():
         args.state_net_hidden_dim,
     )
     critic: nn.Module = nn.Sequential(
-        nn.Linear(agent_state_dim, policy_net_hidden_dim),
+        nn.Linear(args.agent_state_dim, args.critic_net_hidden_dim),
         nn.ReLU(),
-        nn.Linear(policy_net_hidden_dim, agent_action_dim),
-        nn.Softmax(),
+        nn.Linear(args.policy_net_hidden_dim, agent_action_dim),
     )
 
     train_loop(agent, tasks)
