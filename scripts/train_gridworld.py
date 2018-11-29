@@ -1,7 +1,8 @@
 import argparse
 from collections import namedtuple
-from typing import List, Any
+from typing import List, Mapping, Any
 
+import random
 import pendulum
 import torch
 import torch.distributions as dist
@@ -9,11 +10,15 @@ import torch.nn as nn
 
 from models import GridWorldAgent
 from ppg.grammar import PolicyGrammar
-from worlds.gridworld import Item, GridWorld
+from worlds.gridworld import GridWorld, Item, Observation, Action
 
 
 # ==================================================================================================
 # Definitions.
+
+
+# Args mapping accessible from all methods in file.
+args = None
 
 
 def define_args() -> Any:
@@ -22,7 +27,7 @@ def define_args() -> Any:
     # Experiment options.
     parser.add_argument(
         "--experiment_name",
-        default="exp-{}".format(pendulum.now("America/Los_Angeles").strftime("%Y-%m-%d-%H-%M-%S")),
+        default="exp-{}".format(make_timestamp()),
         help="Name of directory to save experiment outputs.",
     )
     parser.add_argument(
@@ -30,10 +35,12 @@ def define_args() -> Any:
         help="Directory where all experiment directories ar stored.",
         default="experiments/",
     )
+    parser.add_argument("--seed", type=int, default=0)
 
     # GridWorld options.
-    parser.add_argument("--grid_row_num", type=int, default=10)
-    parser.add_argument("--grid_col_num", type=int, default=10)
+    parser.add_argument("--world_num_rows", type=int, default=10)
+    parser.add_argument("--world_num_cols", type=int, default=10)
+    parser.add_argument("--world_max_timesteps", type=int, default=30)
 
     # Agent options.
     parser.add_argument("--agent_state_dim", type=int, default=32)
@@ -87,25 +94,26 @@ def define_grammar() -> PolicyGrammar:
 
 # A task attempts to solve a particular world using a policy constructed for a particular
 # top-level goal. The complexity of a task is how many primitives need to be sequentially executed.
-Task = namedtuple("Task", ["goal", "world", "complexity"])
+Task = namedtuple("Task", ["grammar_goal", "target_item", "complexity"])
 
 
-def define_tasks(args) -> List[Task]:
+def define_tasks(args) -> Mapping[int, Task]:
     # yapf: disable
     tasks = [
-        Task("MakePlank",  GridWorld(args.grid_row_num, args.grid_col_num, Item.PLANK),  2),
-        Task("MakeStick",  GridWorld(args.grid_row_num, args.grid_col_num, Item.STICK),  2),
-        Task("MakeCloth",  GridWorld(args.grid_row_num, args.grid_col_num, Item.CLOTH),  2),
-        Task("MakeRope",   GridWorld(args.grid_row_num, args.grid_col_num, Item.ROPE),   2),
-        Task("MakeBridge", GridWorld(args.grid_row_num, args.grid_col_num, Item.BRIDGE), 3),
-        Task("MakeShears", GridWorld(args.grid_row_num, args.grid_col_num, Item.SHEARS), 3),
+        Task("MakePlank",  Item.PLANK,  2),
+        Task("MakeStick",  Item.STICK,  2),
+        Task("MakeCloth",  Item.CLOTH,  2),
+        Task("MakeRope",   Item.ROPE,   2),
+        Task("MakeBridge", Item.BRIDGE, 3),
+        Task("MakeShears", Item.SHEARS, 3),
     ]
     # yapf: enable
-    return tasks
+    return {i: task for i, task in enumerate(tasks)}
 
 
 # ==================================================================================================
 # Training process.
+
 
 # Experience gained from a single transition.
 #     state:  torch.Tensor
@@ -113,18 +121,32 @@ def define_tasks(args) -> List[Task]:
 #     reward: float
 Transition = namedtuple("Transition", ["state", "action", "reward"])
 
-# An entire rollout of transitions for an episode.
-Trajectory = List[Transition]
 
+# An episode rollout of transitions for a given task.
+#     task_idx: int
+#     trajectory: List[Transition]
 Rollout = namedtuple("Rollout", ["task_idx", "trajectory"])
 
-# task_idx: int
-# trajectory: List[Sample]
+
+def observation_to_tensor(observation: Observation) -> torch.Tensor:
+    raise NotImplementedError
 
 
-def do_rollout(model: GridWorldAgent, task: Task):
-    # Use the algorithm to rollout a trajectory, given the task
-    pass
+def action_probs_to_action(action_probs: torch.Tensor) -> Action:
+    raise NotImplementedError
+
+
+def do_rollout(world: GridWorld, agent: GridWorldAgent, goal: str) -> List[Transition]:
+    rollout: List[Transition] = []
+    agent.reset()
+    observation: Observation = world.reset()
+    while True:
+        agent_state, action_probs = agent.forward(observation_to_tensor(observation), goal)
+        action: Action = action_probs_to_action(action_probs)
+        observation, reward, done, info = world.step(action)
+        rollout.append(Transition(state=agent_state, action=action, reward=reward))
+        if done: break
+    return rollout
 
 
 def calculate_means(dataset: List[Rollout], active_tasks: List[Task]):
@@ -140,54 +162,73 @@ def calculate_means(dataset: List[Rollout], active_tasks: List[Task]):
 
 
 def train_step(
-        model: GridWorldAgent,
+        agent: GridWorldAgent,
         active_tasks: List[Task],
         curriculum,
         max_num_rollouts=100,
 ):
     # Generate dataset of rollouts given current curriculum over tasks.
-    dataset: List[Rollout] = []
+    dataset: List[List[Transition]] = []
     while len(dataset) < max_num_rollouts:
         task: Task = active_tasks[curriculum.sample().item()]
-        rollout: Rollout = do_rollout(task, model)
+        world: GridWorld = GridWorld(args.world_num_rows, args.world_num_cols, task.target_item)
+        rollout: List[Transition] = do_rollout(world, agent, task.grammar_goal)
         dataset.append(rollout)
+
+    # Update model parameters given dataset.
     for rollout in dataset:
-        model.update_policy()
-        model.update_critic()
+        # Actor.
+        pass
+
+        # Critic.
+        pass
 
     return calculate_means(dataset, tasks)
 
 
-def update_curriculum(means: torch.tensor):
-    return dist.Categorical(1 - means)
-
-
 def train_loop(
-        model: GridWorldAgent,
+        agent: GridWorldAgent,
+        critic: torch.Module,
         tasks: List[Task],
-        max_task_complexity=50,
+        max_task_complexity=3,
         good_task_reward=0.7,
 ):
     curr_task_complexity = 1
-    while curr_task_complexity < max_task_complexity:
+    while curr_task_complexity <= max_task_complexity:
         min_task_reward = float("-inf")
-        active_tasks: List[Task] = [
-            task for task in tasks if task.complexity < curr_task_complexity
-        ]
+        active_tasks: List[Task] = [t for t in tasks if t.complexity < curr_task_complexity]
+
         # Curriculum is distribution `torch.Categorical[N_active_tasks]``
         curriculum = dist.Categorical(torch.ones(len(active_tasks)))
         while min_task_reward < good_task_reward:
-            means = train_step(model, active_tasks, curriculum)
-            curriculum = update_curriculum(means)
+            means = train_step(agent, active_tasks, curriculum)
+            curriculum = dist.Categorical(1 - means)
             min_task_reward = torch.min(means)
         curr_task_complexity += 1
 
 
 # ==================================================================================================
+# Utility functions.
+
+
+def make_timestamp() -> str:
+    return pendulum.now("America/Los_Angeles").strftime("%Y-%m-%d-%H-%M-%S")
+
+
+def save_model(name: str, model, timestamp=True):
+    raise NotImplementedError  # TODO
+
+
+def configure():
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
 
 def main():
+    global args
     args = define_args()
+    configure()
+
     grammar: PolicyGrammar = define_grammar()
     tasks: List[Task] = define_tasks(args)
     agent: GridWorldAgent = GridWorldAgent(
@@ -202,10 +243,12 @@ def main():
     critic: nn.Module = nn.Sequential(
         nn.Linear(args.agent_state_dim, args.critic_net_hidden_dim),
         nn.ReLU(),
-        nn.Linear(args.policy_net_hidden_dim, agent_action_dim),
+        nn.Linear(args.policy_net_hidden_dim, len(tasks)),
     )
 
-    train_loop(agent, tasks)
+    train_loop(agent, critic, tasks)
+    save_model("agent-final", agent)
+    save_model("critic-final", critic)
 
 
 if __name__ == "__main__":

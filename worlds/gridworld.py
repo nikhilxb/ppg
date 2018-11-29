@@ -4,7 +4,7 @@ Reinforcement Learning with Policy Sketches", by Andreas et al.
 """
 import random
 import crayons
-from typing import List, Tuple, Mapping, Any, Iterable, Optional
+from typing import List, Tuple, Mapping, Any, Set, Optional
 from textwrap import indent
 from collections import defaultdict
 from enum import Enum
@@ -171,17 +171,13 @@ class GridWorld:
             goal: Item,
             max_timesteps: int = 100,
             window_radius: int = 2,
-            seed: int = 0,
     ):
         """Initializes the grid randomly conforming to the specifications."""
         self.num_rows: int = num_rows
         self.num_cols: int = num_cols
         self.max_timesteps: int = max_timesteps
-        self.window_radius = 2,
+        self.window_radius = window_radius,
         self.goal: Item = goal
-
-        self.seed: int = seed
-        random.seed(seed)
 
         # Initialize empty world
         self.grid: List[List[Cell]] = []

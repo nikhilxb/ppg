@@ -1,6 +1,6 @@
+import torch
 import torch.nn as nn
 from ppg.grammar import PolicyGrammar, Token, Goal, Primitive, PolicyGrammarNet
-from worlds.gridworld import Observation
 
 
 class GridWorldAgent(nn.Module):
@@ -47,10 +47,14 @@ class GridWorldAgent(nn.Module):
         self.state_net = nn.Sequential(nn.Linear(agent_state_dim, state_net_hidden_dim),
                                       )  # TODO: Make into RNN
 
+    def reset_hidden(self):
+
     def forward(
             self,
-            observation: Observation,
+            observation: torch.Tensor,
             goal: str,
     ):
+        self.hidden_state
         agent_state = self.state_net(observation)
         action_scores = self.policy_net(goal, agent_state)
+        return agent_state, action_scores
