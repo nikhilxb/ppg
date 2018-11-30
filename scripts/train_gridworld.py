@@ -11,7 +11,7 @@ from typing import List, Tuple, Mapping, Any
 
 from ppg.grammar import PolicyGrammar
 from ppg.models import GridWorldAgent
-from worlds.gridworld import GridWorld, Item, Observation, Action
+from worlds.gridworld import GridWorld, Item, Observation, Action, Cell
 
 # ==================================================================================================
 # Definitions.
@@ -42,7 +42,7 @@ def define_args() -> Any:
     parser.add_argument("--activation_net_hidden_dim", type=int, default=32)
     parser.add_argument("--production_net_hidden_dim", type=int, default=32)
     parser.add_argument("--policy_net_hidden_dim", type=int, default=64)
-    parser.add_argument("--state_net_hidden_dim", type=int, default=128)
+    parser.add_argument("--state_net_layers_num", type=int, default=1)
     parser.add_argument("--critic_net_hidden_dim", type=int, default=64)
 
     # Training options.
@@ -124,18 +124,35 @@ Transition = namedtuple(
 # An episode rollout of transitions for a given task.
 #     task_idx: int
 #     trajectory: List[Transition]
-Rollout = namedtuple("Rollout", ["task_idx", "trajectory"])
+Rollout = namedtuple("Rollout", ["task_idx", "active_task_idx", "trajectory"])
+
+
+def calc_observation_dim(window_radius: int) -> int:
+    return len(Item) + len(Cell) * (2 * window_radius + 1) ** 2
 
 
 def encode_observation(observation: Observation) -> torch.Tensor:
-    raise NotImplementedError  # TODO
+    inventory, window = observation
+
+    inventory_tensor = torch.zeros(len(Item))
+    for item in inventory:
+        inventory_tensor[item.value] = 1
+
+    num_rows, num_cols = len(window), len(window[0])
+    window_tensor = torch.zeros(num_rows, num_cols, len(Cell))
+    for r in range(num_rows):
+        for c in range(num_cols):
+            if window[r][c] is not None:
+                window_tensor[r, c, window[r][c].value] = 1
+
+    return torch.cat((inventory_tensor, window_tensor.flatten()))
 
 
 def generate_trajectory(
         world: GridWorld,
         agent: GridWorldAgent,
         goal: str,
-        critic: torch.Module,
+        critic: nn.Module,
         task_idx: int,
         deterministic: bool = False,
 ) -> List[Transition]:
@@ -178,15 +195,16 @@ def generate_trajectory(
 
 def train_step(
         agent: GridWorldAgent,
-        critic: torch.Module,
+        critic: nn.Module,
         active_tasks: Tuple[Tuple[int, Task]],
-        curriculum: torch.Categorical,
+        curriculum: dist.Categorical,
         num_rollouts: int = 100,
 ):
     # Generate dataset of rollouts given current curriculum over tasks.
     dataset: List[Rollout] = []
     while len(dataset) < num_rollouts:
-        task_idx, task = active_tasks[curriculum.sample().item()]
+        active_task_idx: int = curriculum.sample().item()
+        task_idx, task = active_tasks[active_task_idx]
         world: GridWorld = GridWorld(
             args.world_num_rows,
             args.world_num_cols,
@@ -198,11 +216,13 @@ def train_step(
             world, agent, task.grammar_goal, critic, task_idx
         )
         if len(trajectory) == 0: continue
-        dataset.append(Rollout(task_idx=task_idx, trajectory=trajectory))
+        dataset.append(
+            Rollout(task_idx=task_idx, active_task_idx=active_task_idx, trajectory=trajectory)
+        )
 
     # Update model parameters given dataset.
-    task_reward_sum = defaultdict(float)
-    task_count = defaultdict(int)
+    reward_sums: List[float] = torch.zeros(len(active_tasks))
+    counts: List[int] = torch.ones(len(active_tasks))  # Prevent divide by 0.
     for rollout in dataset:
         state_arr, action_arr, reward_arr, log_prob_arr, critic_value_arr, discounted_return_arr \
             = zip(*rollout.trajectory)
@@ -210,17 +230,15 @@ def train_step(
         # TODO: PPO algorithm
         raise NotImplementedError
 
-        task_reward_sum[rollout.task_idx] += sum(reward_arr)
-        task_count[rollout.task_idx] += 1
-    means = torch.tensor(
-        [float(cumulative_rewards[i]) / counts[i] for i in range(len(active_tasks))]
-    )
-    return {task_idx: torch for task_idx in task_c}
+        reward_sums[rollout.active_task_idx] += sum(reward_arr)
+        counts[rollout.active_task_idx] += 1
+
+    return reward_sums / counts
 
 
 def train_loop(
         agent: GridWorldAgent,
-        critic: torch.Module,
+        critic: nn.Module,
         tasks: Tuple[Task],
         max_task_complexity: int = 3,
 ) -> None:
@@ -238,7 +256,7 @@ def train_loop(
             curr_task_complexity += 1
             continue
 
-        # Curriculum is multinomial `torch.Categorical[len(active_tasks)]`.
+        # Curriculum is multinomial `dist.Categorical[len(active_tasks)]`.
         curriculum = dist.Categorical(torch.ones(len(active_tasks)))
         while min_task_reward < args.task_reward_threshold:
             means = train_step(
@@ -276,12 +294,13 @@ def main() -> None:
     tasks: Tuple[Task] = define_tasks(args)
     agent: GridWorldAgent = GridWorldAgent(
         grammar,
-        args.agent_state_dim,
-        args.agent_action_dim,
-        args.activation_net_hidden_dim,
-        args.production_net_hidden_dim,
-        args.policy_net_hidden_dim,
-        args.state_net_hidden_dim,
+        env_observation_dim=calc_observation_dim(args.world_window_radius),
+        agent_state_dim=args.agent_state_dim,
+        agent_action_dim=args.agent_action_dim,
+        activation_net_hidden_dim=args.activation_net_hidden_dim,
+        production_net_hidden_dim=args.production_net_hidden_dim,
+        policy_net_hidden_dim=args.policy_net_hidden_dim,
+        state_net_layers_num=args.state_net_layers_num,
     )
     critic: nn.Module = nn.Sequential(
         nn.Linear(args.agent_state_dim, args.critic_net_hidden_dim),

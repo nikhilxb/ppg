@@ -176,7 +176,7 @@ class GridWorld:
         self.num_rows: int = num_rows
         self.num_cols: int = num_cols
         self.max_timesteps: int = max_timesteps
-        self.window_radius = window_radius,
+        self.window_radius: int = window_radius
         self.goal: Item = goal
 
         # Initialize empty world

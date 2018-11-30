@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from typing import Tuple
 from ppg.grammar import PolicyGrammar, Token, Goal, Primitive, PolicyGrammarNet
 
 
@@ -8,23 +9,15 @@ class GridWorldAgent(nn.Module):
     def __init__(
             self,
             grammar: PolicyGrammar,
+            env_observation_dim: int = 10,
             agent_state_dim: int = 100,
             agent_action_dim: int = 5,
             activation_net_hidden_dim: int = 32,
             production_net_hidden_dim: int = 32,
             policy_net_hidden_dim: int = 32,
-            state_net_hidden_dim: int = 32,
+            state_net_layers_num: int = 1,
     ):
         self.grammar: PolicyGrammar = grammar
-
-        # Initial hidden state shape: (num_layers, batch, hidden dimension)
-        # TODO: What is the batch size? set to 1 for now
-        self.state_net_layers = 1
-        self.state_net_batch = 1
-        self.state_net_hidden_dim = state_net_hidden_dim
-        self.hidden_state = torch.new_zeros(
-            (self.state_net_layers, self.state_net_batch, self.state_net_hidden_dim)
-        )
 
         def make_activation_net(token: Token) -> nn.Module:
             return nn.Sequential(
@@ -50,24 +43,30 @@ class GridWorldAgent(nn.Module):
                 nn.Softmax(),
             )
 
+        # Policy net converts agent state into policy action scores.
         self.policy_net = PolicyGrammarNet(
             self.grammar, make_activation_net, make_production_net, make_policy_net
         )
-        self.state_net = nn.GRU(agent_state_dim, state_net_hidden_dim)
 
-    def reset(self):
-        # Reset the agent's state net
-        self.hidden_state = torch.new_zeros(
-            (self.state_net_layers, self.state_net_batch, self.state_net_hidden_dim)
+        # State net integrates environment observation into agent recurrent state,
+        # of size (num_layers, batch=1, agent_state_dim).
+        self.agent_state_dim: int = agent_state_dim
+        self.state_net_layers_num: int = state_net_layers_num
+        self.state_net = nn.GRU(
+            env_observation_dim, agent_state_dim, num_layers=state_net_layers_num
         )
+        self.hidden_state = None
+        self.reset()
 
-    def forward(
-            self,
-            observation: torch.Tensor,
-            goal: str,
-    ):
-        agent_state, next_hidden_state = self.state_net(observation, self.hidden_state)
-        self.hidden_state = next_hidden_state
+    def reset(self) -> None:
+        self.hidden_state = torch.zeros(self.state_net_layers_num, 1, self.agent_state_dim)
+
+    def forward(self, observation: torch.Tensor, goal: str) -> Tuple[torch.Tensor, torch.Tensor]:
+        agent_state, self.hidden_state = self.state_net(
+            observation.view(1, 1, -1),
+            self.hidden_state,
+        )
+        agent_state = agent_state.view(-1)
         action_scores = self.policy_net(goal, agent_state)
         return agent_state, action_scores
 
