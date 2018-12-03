@@ -160,7 +160,7 @@ def encode_observation(obs_raw: Observation) -> torch.Tensor:
             if window[r][c] is not None:
                 window_tensor[r, c, window[r][c].value] = 1
 
-    return torch.cat((inventory_tensor, window_tensor.flatten())).to(args.device)
+    return torch.cat((inventory_tensor, window_tensor.flatten()))
 
 
 def generate_rollout(
@@ -177,7 +177,7 @@ def generate_rollout(
     agent.reset()
     obs_raw: Observation = world.reset()
     while True:
-        obs = encode_observation(obs_raw)
+        obs = encode_observation(obs_raw).to(args.device)
         agent_state, action_probs = agent(grammar_goal, obs)
         state_value = critic(agent_state)[task_idx]
 
