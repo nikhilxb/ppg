@@ -14,14 +14,14 @@ CODALAB_ARGS="cl run"
 CODALAB_ARGS="$CODALAB_ARGS --name $EXP_NAME"
 
 # Docker image (default: codalab/default-cpu)
-CODALAB_ARGS="$CODALAB_ARGS --request-docker-image codalab/default-gpu"
+CODALAB_ARGS="$CODALAB_ARGS --request-docker-image nikhilxb/python3.7:1.0"
 
 # Explicitly ask for a worker with at least one GPU
 CODALAB_ARGS="$CODALAB_ARGS --request-gpus 1"
 
 # Control the amount of RAM the run needs
 #CODALAB_ARGS="$CODALAB_ARGS --request-memory 5g"
-f
+
 # Bundle dependencies
 CODALAB_ARGS="$CODALAB_ARGS :src"  # Entire parent code directory
 

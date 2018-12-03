@@ -44,7 +44,7 @@ def define_args() -> None:
     # GridWorld options.
     parser.add_argument("--world_num_rows", type=int, default=10)
     parser.add_argument("--world_num_cols", type=int, default=10)
-    parser.add_argument("--world_max_timesteps", type=int, default=5)  # 30
+    parser.add_argument("--world_max_timesteps", type=int, default=100)
     parser.add_argument("--world_window_radius", type=int, default=2)
 
     # Agent options.
@@ -57,9 +57,9 @@ def define_args() -> None:
     parser.add_argument("--critic_net_hidden_dim", type=int, default=64)
 
     # Training options.
-    parser.add_argument("--num_rollouts", type=int, default=100)  # 2000
-    parser.add_argument("--ppo_num_epochs", type=int, default=5)
-    parser.add_argument("--ppo_minibatch_size", type=int, default=50)  # 200
+    parser.add_argument("--num_rollouts", type=int, default=1024)
+    parser.add_argument("--ppo_num_epochs", type=int, default=4)
+    parser.add_argument("--ppo_minibatch_size", type=int, default=32)
     parser.add_argument("--discount_factor", type=float, default=0.9)
     parser.add_argument("--task_reward_threshold", type=float, default=0.8)
 
