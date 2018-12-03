@@ -4,7 +4,7 @@ from typing import Tuple
 from ppg.grammar import PolicyGrammar, Token, Goal, Primitive, PolicyGrammarNet
 
 
-class GridWorldAgent(nn.Module):
+class PolicyGrammarAgent(nn.Module):
 
     def __init__(
             self,
@@ -17,6 +17,7 @@ class GridWorldAgent(nn.Module):
             policy_net_hidden_dim: int = 32,
             state_net_layers_num: int = 1,
     ):
+        super().__init__()
         self.grammar: PolicyGrammar = grammar
 
         def make_activation_net(token: Token) -> nn.Module:
@@ -58,17 +59,28 @@ class GridWorldAgent(nn.Module):
         self.hidden_state = None
         self.reset()
 
-    def reset(self) -> None:
-        self.hidden_state = torch.zeros(self.state_net_layers_num, 1, self.agent_state_dim)
+    def reset(self, device="cpu") -> None:
+        self.hidden_state = torch.zeros(
+            (self.state_net_layers_num, 1, self.agent_state_dim), device=device
+        )
 
-    def forward(self, observation: torch.Tensor, goal: str) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, goal: str, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param goal:
+            Name of top-level `Goal` in `PolicyGrammar`.
+        :param obs:
+            Environment observation, size[env_observation_dim].
+        :return:
+            Agent state, size[agent_state_dim].
+            Action probabilities, size[agent_action_dim].
+        """
         agent_state, self.hidden_state = self.state_net(
-            observation.view(1, 1, -1),
+            obs.view(1, 1, -1),
             self.hidden_state,
         )
         agent_state = agent_state.view(-1)
-        action_scores = self.policy_net(goal, agent_state)
-        return agent_state, action_scores
+        action_probs = self.policy_net(goal, agent_state)
+        return agent_state, action_probs
 
 
 class Baseline(nn.Module):
@@ -84,7 +96,7 @@ class Baseline(nn.Module):
             agent_action_dim: int = 6,
     ):
         # NOTE: the agent action dimension is now defaulted to 6, because
-        # Andreas et al augument their action space with a STOP token
+        # Andreas et al augment their action space with a STOP token
         def make_baseline_net(primitive: Primitive) -> nn.Module:
             return nn.Sequential(
                 nn.Linear(agent_state_dim, baseline_net_hidden_dim),

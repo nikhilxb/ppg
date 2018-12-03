@@ -1,17 +1,28 @@
 import argparse
 import random
 import pendulum
+import logging
+import os
+import sys
+import traceback
+import tqdm
 import torch
 import torch.cuda
 import torch.distributions as dist
 import torch.nn as nn
 
-from collections import namedtuple, defaultdict
-from typing import List, Tuple, Mapping, Any
+from torch.optim import Optimizer, Adam
+from torch.utils.data import DataLoader
+from dataclasses import dataclass
+from typing import List, Tuple, Sequence, Mapping, Any, cast
 
 from ppg.grammar import PolicyGrammar
-from ppg.models import GridWorldAgent
+from ppg.models import PolicyGrammarAgent
 from worlds.gridworld import GridWorld, Item, Observation, Action, Cell
+from algorithms.rl import (
+    Transition, Rollout, SequenceDataset, PPOClipLoss, compute_discounted_returns,
+    compute_advantages
+)
 
 # ==================================================================================================
 # Definitions.
@@ -20,20 +31,20 @@ from worlds.gridworld import GridWorld, Item, Observation, Action, Cell
 args = None
 
 
-def define_args() -> Any:
+def define_args() -> None:
     parser = argparse.ArgumentParser()
 
     # Experiment options.
-    parser.add_argument("--experiment_name", default="exp-{}".format(make_timestamp()))
+    parser.add_argument("experiment_name")
     parser.add_argument("--experiments_dir", default="experiments/")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cuda", type=bool, default=False)
-    parser.add_argument("--log_interval", type=int, default=50)
+    parser.add_argument("--checkpoint_interval", type=int, default=500)
 
     # GridWorld options.
     parser.add_argument("--world_num_rows", type=int, default=10)
     parser.add_argument("--world_num_cols", type=int, default=10)
-    parser.add_argument("--world_max_timesteps", type=int, default=30)
+    parser.add_argument("--world_max_timesteps", type=int, default=5)  # 30
     parser.add_argument("--world_window_radius", type=int, default=2)
 
     # Agent options.
@@ -46,11 +57,14 @@ def define_args() -> Any:
     parser.add_argument("--critic_net_hidden_dim", type=int, default=64)
 
     # Training options.
-    parser.add_argument("--num_rollouts", type=int, default=2000)
+    parser.add_argument("--num_rollouts", type=int, default=100)  # 2000
+    parser.add_argument("--ppo_num_epochs", type=int, default=5)
+    parser.add_argument("--ppo_minibatch_size", type=int, default=50)  # 200
     parser.add_argument("--discount_factor", type=float, default=0.9)
     parser.add_argument("--task_reward_threshold", type=float, default=0.8)
 
-    return parser.parse_args()
+    global args
+    args = parser.parse_args()
 
 
 def define_grammar() -> PolicyGrammar:
@@ -91,14 +105,19 @@ def define_grammar() -> PolicyGrammar:
     return grammar
 
 
-# A task attempts to solve a particular world using a policy constructed for a particular
-# top-level goal. The complexity of a task is how many primitives need to be sequentially executed.
-Task = namedtuple("Task", ["grammar_goal", "target_item", "complexity"])
+@dataclass
+class Task:
+    """A task attempts to solve a particular world using a policy constructed for a particular
+    top-level goal. Task complexity is how many primitives need to be sequentially executed.
+    """
+    grammar_goal: str
+    target_item: Item
+    complexity: int
 
 
-def define_tasks(args) -> Tuple[Task]:
+def define_tasks(args) -> Sequence[Task]:
     # yapf: disable
-    tasks: Tuple[Task] = (
+    tasks: Sequence[Task] = (
         Task("MakePlank",  Item.PLANK,  2),
         Task("MakeStick",  Item.STICK,  2),
         Task("MakeCloth",  Item.CLOTH,  2),
@@ -113,26 +132,22 @@ def define_tasks(args) -> Tuple[Task]:
 # ==================================================================================================
 # Training process.
 
-# Experience gained from a single transition.
-#     state:  torch.Tensor
-#     action: gridworld.Action
-#     reward: float
-Transition = namedtuple(
-    "Transition", ["state", "action", "reward", "log_prob", "critic_value", "discounted_return"]
-)
 
-# An episode rollout of transitions for a given task.
-#     task_idx: int
-#     trajectory: List[Transition]
-Rollout = namedtuple("Rollout", ["task_idx", "active_task_idx", "trajectory"])
+@dataclass
+class Trial:
+    """An single episode rollout on a given task."""
+    active_task_idx: int
+    task_idx: int
+    task: Task
+    rollout: Rollout
 
 
 def calc_observation_dim(window_radius: int) -> int:
-    return len(Item) + len(Cell) * (2 * window_radius + 1) ** 2
+    return len(Item) + len(Cell) * (2 * window_radius + 1)**2
 
 
-def encode_observation(observation: Observation) -> torch.Tensor:
-    inventory, window = observation
+def encode_observation(obs_raw: Observation) -> torch.Tensor:
+    inventory, window = obs_raw
 
     inventory_tensor = torch.zeros(len(Item))
     for item in inventory:
@@ -145,64 +160,142 @@ def encode_observation(observation: Observation) -> torch.Tensor:
             if window[r][c] is not None:
                 window_tensor[r, c, window[r][c].value] = 1
 
-    return torch.cat((inventory_tensor, window_tensor.flatten()))
+    return torch.cat((inventory_tensor, window_tensor.flatten())).to(args.device)
 
 
-def generate_trajectory(
+def generate_rollout(
         world: GridWorld,
-        agent: GridWorldAgent,
-        goal: str,
+        agent: PolicyGrammarAgent,
+        grammar_goal: str,
         critic: nn.Module,
         task_idx: int,
         deterministic: bool = False,
-) -> List[Transition]:
-    trajectory: List[Transition] = []
+) -> Rollout:
+    rollout: Sequence[Transition] = []
 
     # Perform typical RL loop.
     agent.reset()
-    obs: Observation = world.reset()
+    obs_raw: Observation = world.reset()
     while True:
-        agent_state, action_probs = agent(encode_observation(obs), goal)
+        obs = encode_observation(obs_raw)
+        agent_state, action_probs = agent(grammar_goal, obs)
+        state_value = critic(agent_state)[task_idx]
+
         action_dist = dist.Categorical(action_probs)
-        action_idx = action_dist.sample() if not deterministic else action_probs.argmax()
+        action = action_dist.sample() if not deterministic else action_probs.argmax()
+        log_prob = action_dist.log_prob(action)
 
-        log_prob = action_dist.log_prob(action_idx)
-        critic_value = critic(agent_state)[task_idx]
+        action_raw: Action = Action(action.item())
+        obs_raw, reward_raw, done, info = world.step(action_raw)
+        reward = torch.tensor(float(reward_raw))
 
-        action: Action = Action(action_idx.item())
-        obs, reward, done, info = world.step(action)
-
-        trajectory.append(
+        # Must detach results computed by neural networks from computational these value
+        rollout.append(
             Transition(
-                state=agent_state,
+                obs=obs,
                 action=action,
                 reward=reward,
-                log_prob=log_prob,
-                critic_value=critic_value,
+                log_prob=log_prob.detach(),
+                state_value=state_value.detach(),
                 discounted_return=None,
+                advantage=None,
             )
         )
         if done: break
 
-    # Compute discounted returns from reward of each transition.
-    curr_return = 0.0
-    for t in reversed(range(len(trajectory))):
-        curr_return = trajectory[t].reward + args.discount_factor * curr_return
-        trajectory[t] = trajectory[t]._replace(discounted_return=curr_return)
+    rollout = compute_discounted_returns(rollout)
+    rollout = compute_advantages(rollout)
+    return rollout
 
-    return trajectory
+
+def do_ppo_updates(
+        agent: PolicyGrammarAgent,
+        critic: nn.Module,
+        dataset: Sequence[Trial],
+        num_epochs: int = 3,
+        minibatch_size: int = 32,
+):
+    optimizer: Optimizer = Adam(list(agent.parameters()) + list(critic.parameters()))
+    criterion = PPOClipLoss(
+        clip_epsilon=0.2,
+        value_loss_coeff=0.5,
+        entropy_loss_coeff=0.5,
+    )
+
+    # Perform multiple passes over the dataset, increasing sample efficiency.
+    for epoch in range(num_epochs):
+        logging.info("Performing PPO updates; epoch {}.".format(epoch))
+        dataloader: DataLoader = DataLoader(
+            SequenceDataset(dataset),
+            batch_size=minibatch_size,
+            shuffle=True,
+            drop_last=False,
+            collate_fn=lambda batch: batch,
+        )
+
+        # Update model parameters after each minibatch of gradient calculations.
+        for minibatch in tqdm.tqdm(dataloader):
+            minibatch_loss = 0.0
+            for trial in minibatch:
+                trial = cast(Trial, trial)
+                grammar_goal: str = trial.task.grammar_goal
+                task_idx: int = trial.task_idx
+
+                agent.reset(device=args.device)
+
+                def calculate_values(transition: Transition):
+                    transition = cast(Transition, transition)
+
+                    log_prob_old = transition.log_prob
+                    advantage_old = transition.advantage
+                    discounted_return = transition.discounted_return
+
+                    agent_state, action_probs = agent(grammar_goal, transition.obs)
+                    state_value = critic(agent_state)[task_idx]
+
+                    action_dist = dist.Categorical(action_probs)
+                    log_prob = action_dist.log_prob(transition.action)
+                    entropy = action_dist.entropy()
+
+                    return (
+                        log_prob,
+                        log_prob_old,
+                        advantage_old,
+                        state_value,
+                        discounted_return,
+                        entropy,
+                    )
+
+                # Pack values from entire rollout into vectors, size[num_timesteps].
+                (log_prob, log_prob_old, advantage_old, state_value, discounted_return, entropy) = (
+                    torch.stack(elems)
+                    for elems in zip(*(calculate_values(t) for t in trial.rollout))
+                )
+
+                minibatch_loss += criterion(
+                    log_prob,
+                    log_prob_old,
+                    advantage_old,
+                    state_value,
+                    discounted_return,
+                    entropy,
+                )
+            optimizer.zero_grad()
+            minibatch_loss.backward()
+            optimizer.step()
 
 
 def train_step(
-        agent: GridWorldAgent,
+        agent: PolicyGrammarAgent,
         critic: nn.Module,
-        active_tasks: Tuple[Tuple[int, Task]],
+        active_tasks: Sequence[Tuple[int, Task]],
         curriculum: dist.Categorical,
-        num_rollouts: int = 100,
+        num_rollouts: int = 1000,
 ):
     # Generate dataset of rollouts given current curriculum over tasks.
-    dataset: List[Rollout] = []
-    while len(dataset) < num_rollouts:
+    dataset: List[Trial] = []
+    logging.info("Generating dataset of {} rollouts.".format(num_rollouts))
+    for n in tqdm.tqdm(range(num_rollouts)):
         active_task_idx: int = curriculum.sample().item()
         task_idx, task = active_tasks[active_task_idx]
         world: GridWorld = GridWorld(
@@ -212,58 +305,106 @@ def train_step(
             max_timesteps=args.world_max_timesteps,
             window_radius=args.world_window_radius,
         )
-        trajectory: List[Transition] = generate_trajectory(
+        rollout: Sequence[Transition] = generate_rollout(
             world, agent, task.grammar_goal, critic, task_idx
         )
-        if len(trajectory) == 0: continue
         dataset.append(
-            Rollout(task_idx=task_idx, active_task_idx=active_task_idx, trajectory=trajectory)
+            Trial(
+                active_task_idx=active_task_idx,
+                task_idx=task_idx,
+                task=task,
+                rollout=rollout,
+            )
         )
 
-    # Update model parameters given dataset.
-    reward_sums: List[float] = torch.zeros(len(active_tasks))
-    counts: List[int] = torch.ones(len(active_tasks))  # Prevent divide by 0.
-    for rollout in dataset:
-        state_arr, action_arr, reward_arr, log_prob_arr, critic_value_arr, discounted_return_arr \
-            = zip(*rollout.trajectory)
+    # Estimate average reward per task to use for updating curriculum.
+    reward_sums: torch.Tensor = torch.zeros(len(active_tasks))
+    counts: torch.Tensor = torch.ones(len(active_tasks))  # Prevent divide by 0.
+    for trial in dataset:
+        reward_sums[trial.active_task_idx] += sum(transition.reward for transition in trial.rollout)
+        counts[trial.active_task_idx] += 1
 
-        # TODO: PPO algorithm
-        raise NotImplementedError
+    # Record average reward over all tasks.
+    reward_avg_all = reward_sums.sum() / counts.sum()
+    logging.info(
+        "Generated dataset of {} rollouts; avg reward = {}. ".format(
+            len(dataset), reward_avg_all.item()
+        )
+    )
 
-        reward_sums[rollout.active_task_idx] += sum(reward_arr)
-        counts[rollout.active_task_idx] += 1
+    # Update model parameters by performing multiple epochs of PPO.
+    do_ppo_updates(
+        agent,
+        critic,
+        dataset,
+        num_epochs=args.ppo_num_epochs,
+        minibatch_size=args.ppo_minibatch_size,
+    )
 
-    return reward_sums / counts
+    return reward_sums, counts
 
 
 def train_loop(
-        agent: GridWorldAgent,
+        agent: PolicyGrammarAgent,
         critic: nn.Module,
-        tasks: Tuple[Task],
+        tasks: Sequence[Task],
         max_task_complexity: int = 3,
 ) -> None:
-    curr_task_complexity = 1
+    num_steps: int = 0
+    curr_task_complexity: int = 1
     while curr_task_complexity <= max_task_complexity:
-        min_task_reward = float("-inf")
-        active_tasks: Tuple[Tuple[int, Task]] = tuple(
+        active_tasks: Sequence[Tuple[int, Task]] = tuple(
             [
                 (task_idx, task)
                 for task_idx, task in enumerate(tasks)
-                if task.complexity < curr_task_complexity
+                if task.complexity <= curr_task_complexity
             ]
         )
+
+        logging.info(
+            "Training loop started for tasks with complexity <= {}; active tasks = {}".format(
+                curr_task_complexity, len(active_tasks)
+            )
+        )
+
         if len(active_tasks) == 0:
             curr_task_complexity += 1
             continue
 
         # Curriculum is multinomial `dist.Categorical[len(active_tasks)]`.
         curriculum = dist.Categorical(torch.ones(len(active_tasks)))
+        min_task_reward: float = float("-inf")
         while min_task_reward < args.task_reward_threshold:
-            means = train_step(
+            reward_sums, counts = train_step(
                 agent, critic, active_tasks, curriculum, num_rollouts=args.num_rollouts
             )
+            avg_task_reward: float = (reward_sums.sum() / counts.sum()).item()
+            means = reward_sums / counts
             curriculum = dist.Categorical(1 - means)
-            min_task_reward = torch.min(means)
+            min_task_reward = torch.min(means).item()
+            num_steps += 1
+            logging.info(
+                "Training step {} complete; min task reward = {}".format(
+                    num_steps, min_task_reward
+                )
+            )
+
+            # Checkpoint model parameters once in a while.
+            if num_steps % args.checkpoint_interval == 0:
+                save_state(
+                    "checkpoint", {
+                        "agent_state_dict": agent.state_dict(),
+                        "critic_state_dict": critic.state_dict(),
+                        "min_task_reward": min_task_reward,
+                        "num_steps": num_steps,
+                        "avg_task_reward": avg_task_reward,
+                    }
+                )
+
+            # Save results on every step.
+            args.results.write("{} {} {}\n".format(num_steps, avg_task_reward, min_task_reward))
+            args.results.flush()
+
         curr_task_complexity += 1
 
 
@@ -275,24 +416,66 @@ def make_timestamp() -> str:
     return pendulum.now("America/Los_Angeles").strftime("%Y-%m-%d-%H-%M-%S")
 
 
-def save_model(name: str, model, timestamp=True):
-    raise NotImplementedError  # TODO
+def save_state(filename: str, state_dict: Mapping[str, Any], timestamp=True):
+    torch.save(
+        state_dict,
+        os.path.join(
+            args.working_dir,
+            "{}{}.pkl".format(filename, "-{}".format(make_timestamp()) if timestamp else "")
+        )
+    )
 
 
 def configure() -> None:
+    # Set random seeds.
     random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
+    # Set CPU or GPU.
+    args.device = "cuda:0" if args.cuda else "cpu"
+
+    # Set up experiment directory.
+    if not os.path.exists(args.experiments_dir): os.mkdir(args.experiments_dir)
+    args.working_dir = os.path.join(
+        args.experiments_dir, "{}-{}".format(args.experiment_name, make_timestamp())
+    )
+    assert not os.path.exists(args.working_dir)
+    os.mkdir(args.working_dir)
+
+    # Set up results output.
+    args.results = open(os.path.join(args.working_dir, "results.txt"), "w")
+
+    # Set up logging.
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        handlers=[
+            logging.FileHandler(os.path.join(args.working_dir, "logging.txt")),
+            logging.StreamHandler(),
+        ],
+    )
+
+    sys.excepthook = lambda t, v, tb: logging.exception(
+        "".join(traceback.format_exception(t, v, tb))
+    )
+
+    # Log configuration.
+    logging.info(
+        "Starting experiment with configuration:\n{}".format(
+            "\n".join("  {} = {}".format(k, v) for k, v in args.__dict__.items())
+        )
+    )
+
 
 def main() -> None:
-    global args
-    args = define_args()
+    define_args()
     configure()
 
     grammar: PolicyGrammar = define_grammar()
-    tasks: Tuple[Task] = define_tasks(args)
-    agent: GridWorldAgent = GridWorldAgent(
+    tasks: Sequence[Task] = define_tasks(args)
+
+    agent: PolicyGrammarAgent = PolicyGrammarAgent(
         grammar,
         env_observation_dim=calc_observation_dim(args.world_window_radius),
         agent_state_dim=args.agent_state_dim,
@@ -301,16 +484,27 @@ def main() -> None:
         production_net_hidden_dim=args.production_net_hidden_dim,
         policy_net_hidden_dim=args.policy_net_hidden_dim,
         state_net_layers_num=args.state_net_layers_num,
-    )
+    ).to(args.device)
+
     critic: nn.Module = nn.Sequential(
         nn.Linear(args.agent_state_dim, args.critic_net_hidden_dim),
         nn.ReLU(),
         nn.Linear(args.policy_net_hidden_dim, len(tasks)),
-    )
+    ).to(args.device)
 
-    train_loop(agent, critic, tasks)
-    save_model("agent-final", agent)
-    save_model("critic-final", critic)
+    try:
+        train_loop(agent, critic, tasks)
+    except KeyboardInterrupt:
+        logging.info("Training interrupted by keyboard command.")
+
+    save_state(
+        "final", {
+            "agent_state_dict": agent.state_dict(),
+            "critic_state_dict": critic.state_dict(),
+        }
+    )
+    args.results.flush()
+    args.results.close()
 
 
 if __name__ == "__main__":

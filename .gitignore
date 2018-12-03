@@ -45,3 +45,6 @@ ENV/
 *.cache
 *.mypy_cache
 *.pytest_cache
+
+# Experiments
+experiments/

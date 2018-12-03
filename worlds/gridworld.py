@@ -123,8 +123,8 @@ class Agent:
             row: int,
             col: int,
     ):
-        self.row: bool = row
-        self.col: bool = col
+        self.row: int = row
+        self.col: int = col
         self.inventory: Mapping[Item, int] = defaultdict(int)
 
 
@@ -180,7 +180,7 @@ class GridWorld:
         self.goal: Item = goal
 
         # Initialize empty world
-        self.grid: List[List[Cell]] = []
+        self.grid: List[List[Optional[Cell]]] = []
         self.agent: Agent = None
         self.timestep: int = 0
 
@@ -249,7 +249,7 @@ class GridWorld:
             self._action_move(action)
 
         # Construct returns
-        observation: List = self._construct_observation()
+        observation: Observation = self._construct_observation()
         reward: float = REWARD_GOAL if (self.goal in self.agent.inventory) else 0
         done: bool = (self.goal in self.agent.inventory) or (self.timestep >= self.max_timesteps)
         info: Mapping[str, Any] = {}
