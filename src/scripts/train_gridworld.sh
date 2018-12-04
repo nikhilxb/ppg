@@ -17,10 +17,10 @@ CODALAB_ARGS="$CODALAB_ARGS --name $EXP_NAME"
 CODALAB_ARGS="$CODALAB_ARGS --request-docker-image nikhilxb/python3.7:1.0"
 
 # Explicitly ask for a worker with at least one GPU
-CODALAB_ARGS="$CODALAB_ARGS --request-gpus 1"
+# CODALAB_ARGS="$CODALAB_ARGS --request-gpus 1"
 
 # Control the amount of RAM the run needs
-#CODALAB_ARGS="$CODALAB_ARGS --request-memory 5g"
+# CODALAB_ARGS="$CODALAB_ARGS --request-memory 5g"
 
 # Bundle dependencies
 CODALAB_ARGS="$CODALAB_ARGS :src"  # Entire parent code directory

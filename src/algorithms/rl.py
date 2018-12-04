@@ -29,6 +29,9 @@ class Transition:
 # Experience gained from an entire episode of environment interactions.
 Rollout = Sequence[Transition]
 
+# Experience gained from an entire episode of environment interactions, but vectorized.
+VectorizedRollout = Transition
+
 
 def compute_discounted_returns(rollout: Rollout, discount: float = 1.0) -> Rollout:
     """Fills in `discounted_return` fields in-place for each `Transition` in the `Rollout`."""
@@ -66,8 +69,8 @@ class PPOClipLoss(nn.Module):
     def __init__(
             self,
             clip_epsilon: float = 0.2,
-            value_loss_coeff: float = 0.5,
-            entropy_loss_coeff: float = 0.25,
+            value_loss_coeff: float = 1.0,
+            entropy_loss_coeff: float = 0.1,
     ):
         super().__init__()
         self.clip_epsilon: float = clip_epsilon
@@ -85,17 +88,17 @@ class PPOClipLoss(nn.Module):
     ) -> torch.Tensor:
         """
         :param log_prob:
-            Discrete action log probability, size[N].
+            Discrete action log probability, size[T].
         :param log_prob_old:
-            Discrete action log probability for previous version of model parameters, size[N].
+            Discrete action log probability for previous version of model parameters, size[T].
         :param advantage_old:
-            Action advantage for previous version of model parameters, size[N].
+            Action advantage for previous version of model parameters, size[T].
         :param state_value:
-            State value prediction, size[N].
+            State value prediction, size[T].
         :param discounted_return:
-            Discounted return, size[N].
+            Discounted return, size[T].
         :param entropy:
-            Policy distribution entropy, size[N].
+            Policy distribution entropy, size[T].
         :return:
             Loss that maximizes policy loss and entropy, and minimizes state value loss, size[1].
         """

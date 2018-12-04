@@ -20,7 +20,7 @@ from ppg.grammar import PolicyGrammar
 from ppg.models import PolicyGrammarAgent
 from worlds.gridworld import GridWorld, Item, Observation, Action, Cell
 from algorithms.rl import (
-    Transition, Rollout, SequenceDataset, PPOClipLoss, compute_discounted_returns,
+    Transition, VectorizedRollout, SequenceDataset, PPOClipLoss, compute_discounted_returns,
     compute_advantages
 )
 
@@ -39,7 +39,7 @@ def define_args() -> None:
     parser.add_argument("--experiments_dir", default="experiments/")
     parser.add_argument("--seed", type=int, default=86)
     parser.add_argument("--cuda", type=bool, default=False)
-    parser.add_argument("--checkpoint_interval", type=int, default=500)
+    parser.add_argument("--checkpoint_interval", type=int, default=50)
 
     # GridWorld options.
     parser.add_argument("--world_num_rows", type=int, default=10)
@@ -139,7 +139,7 @@ class Trial:
     active_task_idx: int
     task_idx: int
     task: Task
-    rollout: Rollout
+    rollout: VectorizedRollout
 
 
 def calc_observation_dim(window_radius: int) -> int:
@@ -170,16 +170,18 @@ def generate_rollout(
         critic: nn.Module,
         task_idx: int,
         deterministic: bool = False,
-) -> Rollout:
+) -> VectorizedRollout:
     rollout: Sequence[Transition] = []
 
     # Perform typical RL loop.
     agent.reset(device=args.device)
     obs_raw: Observation = world.reset()
     while True:
-        obs = encode_observation(obs_raw).to(args.device)
-        agent_state, action_probs = agent(grammar_goal, obs)
-        state_value = critic(agent_state)[task_idx]
+        obs = encode_observation(obs_raw).to(args.device)  # size[D]
+        agent_state, action_probs = agent(grammar_goal, obs.unsqueeze(0))  # size[1, *]
+        state_value = critic(agent_state)[:, task_idx]
+        action_probs = action_probs.squeeze(0)
+        state_value = state_value.squeeze(0)
 
         action_dist = dist.Categorical(action_probs)
         action = action_dist.sample() if not deterministic else action_probs.argmax()
@@ -187,9 +189,14 @@ def generate_rollout(
 
         action_raw: Action = Action(action.item())
         obs_raw, reward_raw, done, info = world.step(action_raw)
-        reward = torch.tensor(float(reward_raw))
+        reward = torch.tensor(float(reward_raw)).to(args.device)
 
-        # Must detach results computed by neural networks from computational these value
+        # Must detach results computed by neural networks from computational graph as these values
+        # are just used to compute gradients for the model. We don't actually want the gradients to
+        # be propagating through them.
+        #
+        # The transition being added to the rollout is guaranteed to have all tensor fields on the
+        # correct device where training is specified (args.device).
         rollout.append(
             Transition(
                 obs=obs,
@@ -205,7 +212,27 @@ def generate_rollout(
 
     rollout = compute_discounted_returns(rollout)
     rollout = compute_advantages(rollout)
-    return rollout
+
+    def extract_values(t: Transition):
+        return (
+            t.obs, t.action, t.reward, t.log_prob, t.state_value, t.discounted_return, t.advantage
+        )
+
+    # Vectorize rollout for performance efficiency.
+    # TODO: Refactor into constructor of VectorizedRollout.
+    obs, action, reward, log_prob, state_value, discounted_return, advantage = (
+        torch.stack(elems) for elems in zip(*(extract_values(t) for t in rollout))
+    )
+
+    return VectorizedRollout(
+        obs=obs,
+        action=action,
+        reward=reward,
+        log_prob=log_prob,
+        state_value=state_value,
+        discounted_return=discounted_return,
+        advantage=advantage,
+    )
 
 
 def do_ppo_updates(
@@ -232,6 +259,7 @@ def do_ppo_updates(
             drop_last=False,
             collate_fn=lambda batch: batch,
         )
+        # TODO: Collate_fn --> pad a batch of sequences for batching efficency
 
         # Update model parameters after each minibatch of gradient calculations.
         for minibatch in tqdm.tqdm(dataloader):
@@ -240,37 +268,20 @@ def do_ppo_updates(
                 trial = cast(Trial, trial)
                 grammar_goal: str = trial.task.grammar_goal
                 task_idx: int = trial.task_idx
+                rollout: VectorizedRollout = trial.rollout
 
                 agent.reset(device=args.device)
 
-                def calculate_values(transition: Transition):
-                    transition = cast(Transition, transition)
+                log_prob_old = rollout.log_prob  # size[t]
+                advantage_old = rollout.advantage
+                discounted_return = rollout.discounted_return
 
-                    log_prob_old = transition.log_prob
-                    advantage_old = transition.advantage
-                    discounted_return = transition.discounted_return
+                agent_state, action_probs = agent(grammar_goal, rollout.obs)
+                state_value = critic(agent_state)[:, task_idx]
 
-                    agent_state, action_probs = agent(grammar_goal, transition.obs)
-                    state_value = critic(agent_state)[task_idx]
-
-                    action_dist = dist.Categorical(action_probs)
-                    log_prob = action_dist.log_prob(transition.action)
-                    entropy = action_dist.entropy()
-
-                    return (
-                        log_prob,
-                        log_prob_old,
-                        advantage_old,
-                        state_value,
-                        discounted_return,
-                        entropy,
-                    )
-
-                # Pack values from entire rollout into vectors, size[num_timesteps].
-                (log_prob, log_prob_old, advantage_old, state_value, discounted_return, entropy) = (
-                    torch.stack(elems)
-                    for elems in zip(*(calculate_values(t) for t in trial.rollout))
-                )
+                action_dist = dist.Categorical(action_probs)
+                log_prob = action_dist.log_prob(rollout.action)
+                entropy = action_dist.entropy()
 
                 minibatch_loss += criterion(
                     log_prob,
@@ -305,7 +316,7 @@ def train_step(
             max_timesteps=args.world_max_timesteps,
             window_radius=args.world_window_radius,
         )
-        rollout: Sequence[Transition] = generate_rollout(
+        rollout: VectorizedRollout = generate_rollout(
             world, agent, task.grammar_goal, critic, task_idx
         )
         dataset.append(
@@ -321,7 +332,7 @@ def train_step(
     reward_sums: torch.Tensor = torch.zeros(len(active_tasks))
     counts: torch.Tensor = torch.ones(len(active_tasks))  # Prevent divide by 0.
     for trial in dataset:
-        reward_sums[trial.active_task_idx] += sum(transition.reward for transition in trial.rollout)
+        reward_sums[trial.active_task_idx] += trial.rollout.reward.sum()
         counts[trial.active_task_idx] += 1
 
     # Record average reward over all tasks.
