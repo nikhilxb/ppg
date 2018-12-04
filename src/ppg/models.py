@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
-from typing import Tuple
+from typing import Tuple, List, Mapping
 from ppg.grammar import PolicyGrammar, Token, Goal, Primitive, PolicyGrammarNet
+from gridworld import *
 
 
 class PolicyGrammarAgent(nn.Module):
@@ -57,7 +58,6 @@ class PolicyGrammarAgent(nn.Module):
             env_observation_dim, agent_state_dim, num_layers=state_net_layers_num
         )
         self.hidden_state = None
-        self.reset()
 
     def reset(self, device="cpu") -> None:
         self.hidden_state = torch.zeros(
@@ -83,7 +83,7 @@ class PolicyGrammarAgent(nn.Module):
         return agent_state, action_probs
 
 
-class Baseline(nn.Module):
+class BaselineAgent(nn.Module):
     """
     Baseline model; an implementation of the model in the Andreas et al Policy Sketches paper.
     This model *only* includes policy primitive networks ("policy_nets" in the above class).
@@ -91,16 +91,69 @@ class Baseline(nn.Module):
 
     def __init__(
             self,
+            sketches: Mapping[str, Sequence[str]],
+            env_observation_dim: int = 10,
             agent_state_dim: int = 100,
+            agent_action_dim: int = 5,
             baseline_net_hidden_dim: int = 32,
-            agent_action_dim: int = 6,
+            state_net_layers_num: int = 1,
     ):
-        # NOTE: the agent action dimension is now defaulted to 6, because
-        # Andreas et al augment their action space with a STOP token
-        def make_baseline_net(primitive: Primitive) -> nn.Module:
+        # NOTE: the agent action dimension is now defaulted to 5 + 1 = 6 in network below,
+        # because Andreas et al augment their action space with a STOP token
+        def make_baseline_net() -> nn.Module:
             return nn.Sequential(
                 nn.Linear(agent_state_dim, baseline_net_hidden_dim),
                 nn.ReLU(),
-                nn.Linear(baseline_net_hidden_dim, agent_action_dim),
+                nn.Linear(baseline_net_hidden_dim, 1 + agent_action_dim),
                 nn.Softmax(),
             )
+
+       self.sketches = sketches  # { goal : [primitive_1, ..., primitive_n] }
+       self.primitives: Mapping[str, nn.Module] = {}
+       for goal, primitives in sketches.item():
+           for primitive in primitives:
+               if primitive in self.primitives: continue
+               self.primitives[primitive] = make_baseline_net()
+
+     self.current_goal = None
+     self.current_primitive = None
+     self.current_primitive_idx = None
+
+     self.agent_state_dim: int = agent_state_dim
+     self.state_net_layers_num = state_net_layers_num
+
+     self.state_net = nn.GRU(
+         env_observation_dim, agent_state_dim, num_layers=state_net_layers_num
+     )
+     self.hidden_state = None
+
+     def reset(self, goal: str, device="cpu"):
+         self.current_goal = goal
+         self.hidden_state = torch.zeros(
+             (self.state_net_layers_num, 1, self.agent_state_dim), device=device
+         )
+         self.current_primitive_idx = 0
+
+     def forward(obs: torch.Tensor):
+         agent_state, self.hidden_state = self.state_net(
+            obs.unsqueeze(1),
+            self.hidden_state,
+        )
+        agent_state = agent_state.squeeze(1)
+        curr_sketch: List[str] = self.sketches[self.current_goal]
+
+        def get_action_probs_for_curr_primitive():
+            curr_primitive: str = curr_sketch[self.current_primitive_idx]
+            action_probs = self.primitives[curr_primitive](agent_state)
+            return action_probs
+
+        action_probs = get_action_probs_for_curr_primitive()
+        action = dist.Categorical(action_probs).sample().item()
+        if action != 0 or self.current_primitive_idx == len(curr_sketch) - 1:
+            return agent_state, action_probs[1:]
+
+        # Not on the last primitive, sampled STOP: increment the primitive index.
+        # Execute the next primitive.
+        self.current_primitive_idx += 1
+        action_probs = get_action_probs_for_curr_primitive()
+        return agent_state, action_probs[1:]
