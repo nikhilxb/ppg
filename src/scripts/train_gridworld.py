@@ -48,6 +48,7 @@ def define_args() -> None:
     parser.add_argument("--world_window_radius", type=int, default=2)
 
     # Agent options.
+    parser.add_argument("--agent_type", type=str, default="ppg")
     parser.add_argument("--agent_state_dim", type=int, default=128)
     parser.add_argument("--agent_action_dim", type=int, default=5)
     parser.add_argument("--activation_net_hidden_dim", type=int, default=32)
@@ -65,7 +66,6 @@ def define_args() -> None:
 
     global args
     args = parser.parse_args()
-
 
 def define_grammar() -> PolicyGrammar:
     grammar: PolicyGrammar = PolicyGrammar(
@@ -483,19 +483,30 @@ def main() -> None:
     define_args()
     configure()
 
-    grammar: PolicyGrammar = define_grammar()
     tasks: Sequence[Task] = define_tasks()
 
-    agent: PolicyGrammarAgent = PolicyGrammarAgent(
-        grammar,
-        env_observation_dim=calc_observation_dim(args.world_window_radius),
-        agent_state_dim=args.agent_state_dim,
-        agent_action_dim=args.agent_action_dim,
-        activation_net_hidden_dim=args.activation_net_hidden_dim,
-        production_net_hidden_dim=args.production_net_hidden_dim,
-        policy_net_hidden_dim=args.policy_net_hidden_dim,
-        state_net_layers_num=args.state_net_layers_num,
-    ).to(args.device)
+    if args.agent_type == "ppg":
+        grammar: PolicyGrammar = define_grammar()
+        agent: PolicyGrammarAgent = PolicyGrammarAgent(
+            grammar,
+            env_observation_dim=calc_observation_dim(args.world_window_radius),
+            agent_state_dim=args.agent_state_dim,
+            agent_action_dim=args.agent_action_dim,
+            activation_net_hidden_dim=args.activation_net_hidden_dim,
+            production_net_hidden_dim=args.production_net_hidden_dim,
+            policy_net_hidden_dim=args.policy_net_hidden_dim,
+            state_net_layers_num=args.state_net_layers_num,
+        ).to(args.device)
+    elif args.agent_type == "sketch":
+        sketch =
+        agent: PolicySketchAgent = BaselineAgent(
+            sketch,
+            env_observation_dim=calc_observation_dim(args.world_window_radius),
+            agent_state_dim=args.agent_state_dim,
+            agent_action_dim=args.agent_action_dim,
+            policy_net_hidden_dim=args.policy_net_hidden_dim,
+            state_net_layers_num=args.state_net_layers_num,
+        )
 
     critic: nn.Module = nn.Sequential(
         nn.Linear(args.agent_state_dim, args.critic_net_hidden_dim),
