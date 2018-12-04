@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
-from typing import Tuple, List, Mapping
+import torch.distributions as dist
+from typing import Tuple, List, Mapping, Sequence
 from ppg.grammar import PolicyGrammar, Token, Goal, Primitive, PolicyGrammarNet
-from gridworld import *
 
 
 class PolicyGrammarAgent(nn.Module):
@@ -108,37 +108,38 @@ class BaselineAgent(nn.Module):
                 nn.Softmax(),
             )
 
-       self.sketches = sketches  # { goal : [primitive_1, ..., primitive_n] }
-       self.primitives: Mapping[str, nn.Module] = {}
-       for goal, primitives in sketches.item():
-           for primitive in primitives:
-               if primitive in self.primitives: continue
-               self.primitives[primitive] = make_baseline_net()
+        self.sketches = sketches  # { goal : [primitive_1, ..., primitive_n] }
+        self.primitives: Mapping[str, nn.Module] = {}
+        for goal, primitives in sketches.item():
+            for primitive in primitives:
+                if primitive in self.primitives: continue
+                self.primitives[primitive] = make_baseline_net()
 
-     self.current_goal = None
-     self.current_primitive = None
-     self.current_primitive_idx = None
+        self.current_goal = None
+        self.current_primitive = None
+        self.current_primitive_idx = None
 
-     self.agent_state_dim: int = agent_state_dim
-     self.state_net_layers_num = state_net_layers_num
+        self.agent_state_dim: int = agent_state_dim
+        self.state_net_layers_num = state_net_layers_num
 
-     self.state_net = nn.GRU(
-         env_observation_dim, agent_state_dim, num_layers=state_net_layers_num
-     )
-     self.hidden_state = None
+        self.state_net = nn.GRU(
+            env_observation_dim, agent_state_dim, num_layers=state_net_layers_num
+        )
+        self.hidden_state = None
 
-     def reset(self, goal: str, device="cpu"):
-         self.current_goal = goal
-         self.hidden_state = torch.zeros(
-             (self.state_net_layers_num, 1, self.agent_state_dim), device=device
-         )
-         self.current_primitive_idx = 0
+    def reset(self, goal: str, device="cpu"):
+        self.current_goal = goal
+        self.hidden_state = torch.zeros(
+            (self.state_net_layers_num, 1, self.agent_state_dim), device=device
+        )
+        self.current_primitive_idx = 0
 
-     def forward(obs: torch.Tensor):
-         agent_state, self.hidden_state = self.state_net(
+    def forward(self, obs: torch.Tensor):
+        agent_state, self.hidden_state = self.state_net(
             obs.unsqueeze(1),
             self.hidden_state,
         )
+
         agent_state = agent_state.squeeze(1)
         curr_sketch: List[str] = self.sketches[self.current_goal]
 

@@ -198,7 +198,7 @@ class PolicyGrammar:
             downstream_probs = 0
             production_probs = root.production_probs(agent_state)  # size[T, num_productions]
             for i, production in enumerate(root.productions):
-                downstream_probs += production_probs[:, i:i+1] * recurse(production)
+                downstream_probs += production_probs[:, i:i + 1] * recurse(production)
             return root.activation_prob(agent_state) * downstream_probs  # size[T, agent_action_dim]
 
         return recurse(self.goals[start_goal])
