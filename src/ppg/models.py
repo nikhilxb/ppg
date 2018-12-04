@@ -95,22 +95,24 @@ class PolicySketchAgent(nn.Module):
             env_observation_dim: int = 10,
             agent_state_dim: int = 100,
             agent_action_dim: int = 5,
-            baseline_net_hidden_dim: int = 32,
+            policy_net_hidden_dim: int = 32,
             state_net_layers_num: int = 1,
     ):
+        super().__init__()
+
         # NOTE: the agent action dimension is now defaulted to 5 + 1 = 6 in network below,
         # because Andreas et al augment their action space with a STOP token
         def make_baseline_net() -> nn.Module:
             return nn.Sequential(
-                nn.Linear(agent_state_dim, baseline_net_hidden_dim),
+                nn.Linear(agent_state_dim, policy_net_hidden_dim),
                 nn.ReLU(),
-                nn.Linear(baseline_net_hidden_dim, 1 + agent_action_dim),
+                nn.Linear(policy_net_hidden_dim, 1 + agent_action_dim),
                 nn.Softmax(),
             )
 
         self.sketches: Mapping[str, Sequence[str]] = sketches
         self.primitives: Mapping[str, nn.Module] = {}
-        for goal, primitives in sketches.item():
+        for goal, primitives in sketches.items():
             for primitive in primitives:
                 if primitive in self.primitives: continue
                 self.primitives[primitive] = make_baseline_net()
@@ -129,17 +131,25 @@ class PolicySketchAgent(nn.Module):
 
     def reset(self, goal: str, device="cpu"):
         self.current_goal = goal
+        self.current_primitive_idx = 0
         self.hidden_state = torch.zeros(
             (self.state_net_layers_num, 1, self.agent_state_dim), device=device
         )
-        self.current_primitive_idx = 0
 
-    def forward(self, obs: torch.Tensor):
+    def forward(self, goal: str, obs: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        :param goal:
+            Name of top-level goal in sketch.
+        :param obs:
+            Environment observation, size[timesteps, env_observation_dim].
+        :return:
+            Agent state, size[timesteps, agent_state_dim].
+            Action probabilities, size[timesteps, agent_action_dim].
+        """
         agent_state, self.hidden_state = self.state_net(
             obs.unsqueeze(1),
             self.hidden_state,
         )
-
         agent_state = agent_state.squeeze(1)
         curr_sketch: List[str] = self.sketches[self.current_goal]
 
@@ -149,12 +159,11 @@ class PolicySketchAgent(nn.Module):
             return action_probs
 
         action_probs = get_action_probs_for_curr_primitive()
-        action = dist.Categorical(action_probs).sample().item()
+        action = dist.Categorical(action_probs).sample()
         if action != 0 or self.current_primitive_idx == len(curr_sketch) - 1:
-            return agent_state, action_probs[1:]
+            return agent_state, action_probs[:, 1:]
 
-        # Not on the last primitive, sampled STOP: increment the primitive index.
-        # Execute the next primitive.
+        # Move on to the next primitive in the sketch.
         self.current_primitive_idx += 1
         action_probs = get_action_probs_for_curr_primitive()
         return agent_state, action_probs[1:]

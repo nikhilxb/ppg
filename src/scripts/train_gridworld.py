@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import List, Tuple, Sequence, Mapping, Any, cast
 
 from ppg.grammar import PolicyGrammar
-from ppg.models import PolicyGrammarAgent
+from ppg.models import PolicyGrammarAgent, PolicySketchAgent
 from worlds.gridworld import GridWorld, Item, Observation, Action, Cell
 from algorithms.rl import (
     Transition, VectorizedRollout, SequenceDataset, PPOClipLoss, compute_discounted_returns,
@@ -48,7 +48,7 @@ def define_args() -> None:
     parser.add_argument("--world_window_radius", type=int, default=2)
 
     # Agent options.
-    parser.add_argument("--agent_type", type=str, default="ppg")
+    parser.add_argument("--agent_type", type=str, default="sketch")
     parser.add_argument("--agent_state_dim", type=int, default=128)
     parser.add_argument("--agent_action_dim", type=int, default=5)
     parser.add_argument("--activation_net_hidden_dim", type=int, default=32)
@@ -66,6 +66,7 @@ def define_args() -> None:
 
     global args
     args = parser.parse_args()
+
 
 def define_grammar() -> PolicyGrammar:
     grammar: PolicyGrammar = PolicyGrammar(
@@ -98,11 +99,27 @@ def define_grammar() -> PolicyGrammar:
     grammar.add_productions("MakeRope",   [pi["GetGrass"], pi["UseToolshed"]])
     grammar.add_productions("MakeBridge", [pi["GetIron"], pi["GetWood"], pi["UseFactory"]])
     grammar.add_productions("MakeShears", [g["MakeStick"], pi["UseToolshed"]])
-    grammar.add_productions("MakeAxe",    [g["MakeStick"], pi["GetIron"], pi["UseToolshed"]])
-    grammar.add_productions("MakeBed",    [g["MakePlank"], pi["GetGrass"], pi["UseWorkbench"]])
-    grammar.add_productions("MakeLadder", [g["MakePlank"], g["MakeStick"], pi["UseFactory"]])
+    # grammar.add_productions("MakeAxe",    [g["MakeStick"], pi["GetIron"], pi["UseToolshed"]])
+    # grammar.add_productions("MakeBed",    [g["MakePlank"], pi["GetGrass"], pi["UseWorkbench"]])
+    # grammar.add_productions("MakeLadder", [g["MakePlank"], g["MakeStick"], pi["UseFactory"]])
     # yapf: enable
     return grammar
+
+
+def define_sketches() -> Mapping[str, Sequence[str]]:
+    # yapf: disable
+    return {
+        "MakePlank":  ["GetWood", "UseToolshed"],
+        "MakeStick":  ["GetWood", "UseWorkbench"],
+        "MakeCloth":  ["GetGrass", "UseFactory"],
+        "MakeRope":   ["GetGrass", "UseToolshed"],
+        "MakeBridge": ["GetIron", "GetWood", "UseFactory"],
+        "MakeShears": ["GetWood", "UseWorkbench", "UseToolshed"],
+        # "MakeAxe":    ["GetWood", "UseWorkbench", "GetIron", "UseToolshed"],
+        # "MakeBed":    ["GetWood", "UseToolshed", "GetGrass", "UseWorkbench"],
+        # "MakeLadder": ["GetWood", "UseToolshed", "GetWood", "UseWorkbench", "UseFactory"],
+    }
+    # yapf: enable
 
 
 @dataclass
@@ -498,15 +515,15 @@ def main() -> None:
             state_net_layers_num=args.state_net_layers_num,
         ).to(args.device)
     elif args.agent_type == "sketch":
-        sketch =
-        agent: PolicySketchAgent = BaselineAgent(
+        sketch: Mapping[str, Sequence[str]] = define_sketches()
+        agent: PolicySketchAgent = PolicySketchAgent(
             sketch,
             env_observation_dim=calc_observation_dim(args.world_window_radius),
             agent_state_dim=args.agent_state_dim,
             agent_action_dim=args.agent_action_dim,
             policy_net_hidden_dim=args.policy_net_hidden_dim,
             state_net_layers_num=args.state_net_layers_num,
-        )
+        ).to(args.device)
 
     critic: nn.Module = nn.Sequential(
         nn.Linear(args.agent_state_dim, args.critic_net_hidden_dim),
