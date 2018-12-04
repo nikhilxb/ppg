@@ -69,16 +69,16 @@ class PolicyGrammarAgent(nn.Module):
         :param goal:
             Name of top-level `Goal` in `PolicyGrammar`.
         :param obs:
-            Environment observation, size[env_observation_dim].
+            Environment observation, size[timesteps, env_observation_dim].
         :return:
-            Agent state, size[agent_state_dim].
-            Action probabilities, size[agent_action_dim].
+            Agent state, size[timesteps, agent_state_dim].
+            Action probabilities, size[timesteps, agent_action_dim].
         """
         agent_state, self.hidden_state = self.state_net(
-            obs.view(1, 1, -1),
+            obs.unsqueeze(1),
             self.hidden_state,
         )
-        agent_state = agent_state.view(-1)
+        agent_state = agent_state.squeeze(1)
         action_probs = self.policy_net(goal, agent_state)
         return agent_state, action_probs
 

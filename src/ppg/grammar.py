@@ -178,7 +178,7 @@ class PolicyGrammar:
         """Construct probability over each action by expanding the policy grammar starting from
         the specified top-level goal.
         :param start_goal
-        :param agent_state
+        :param agent_state, size[T, agent_state_dim]
         :return
         """
         cache: Mapping[Token, Any] = {}
@@ -196,10 +196,10 @@ class PolicyGrammar:
             # Recursive case: Traverse all possible productions from goal.
             root = cast(Goal, root)
             downstream_probs = 0
-            production_probs = root.production_probs(agent_state)
+            production_probs = root.production_probs(agent_state)  # size[T, num_productions]
             for i, production in enumerate(root.productions):
-                downstream_probs += production_probs[i] * recurse(production)
-            return root.activation_prob(agent_state) * downstream_probs
+                downstream_probs += production_probs[:, i:i+1] * recurse(production)
+            return root.activation_prob(agent_state) * downstream_probs  # size[T, agent_action_dim]
 
         return recurse(self.goals[start_goal])
 
@@ -221,27 +221,27 @@ class PolicyGrammarNet(nn.Module):
         :param make_activation_net
             Function to generate a network that transforms agent state to an activation probability:
             Input:
-                `Tensor[D_agent_state]`
+                `Tensor[T, D_agent_state]`
                     Agent state.
             Output:
-                `Tensor[1]`
+                `Tensor[T, 1]`
                     Activation probability.
         :param make_production_net
             Function to generate a network that transforms agent state to production probabilities:
             Input:
-                `Tensor[D_agent_state]`
+                `Tensor[T, D_agent_state]`
                     Agent state.
             Output:
-                `Tensor[N_productions]`
+                `Tensor[T, N_productions]`
                     Production probabilities for each production. Each goal has a different number
                     of productions.
         :param make_policy_net
             Function to generate a network that transforms agent state to action probabilities:
             Input:
-                `Tensor[D_agent_state]`
+                `Tensor[T, D_agent_state]`
                     Agent state.
             Output:
-                `Tensor[D_agent_actions]`
+                `Tensor[T, D_agent_actions]`
                     Agent actions.
         """
         super().__init__()
