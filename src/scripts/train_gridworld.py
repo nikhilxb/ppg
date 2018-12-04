@@ -150,8 +150,8 @@ def encode_observation(obs_raw: Observation) -> torch.Tensor:
     inventory, window = obs_raw
 
     inventory_tensor = torch.zeros(len(Item))
-    for item in inventory:
-        inventory_tensor[item.value] = 1
+    for item, count in inventory.items():
+        inventory_tensor[item.value] = min(count, 1)
 
     num_rows, num_cols = len(window), len(window[0])
     window_tensor = torch.zeros(num_rows, num_cols, len(Cell))
