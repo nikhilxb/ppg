@@ -37,7 +37,7 @@ def define_args() -> None:
     # Experiment options.
     parser.add_argument("experiment_name")
     parser.add_argument("--experiments_dir", default="experiments/")
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=86)
     parser.add_argument("--cuda", type=bool, default=False)
     parser.add_argument("--checkpoint_interval", type=int, default=500)
 
@@ -57,8 +57,8 @@ def define_args() -> None:
     parser.add_argument("--critic_net_hidden_dim", type=int, default=64)
 
     # Training options.
-    parser.add_argument("--num_rollouts", type=int, default=1024)
-    parser.add_argument("--ppo_num_epochs", type=int, default=4)
+    parser.add_argument("--num_rollouts", type=int, default=384)
+    parser.add_argument("--ppo_num_epochs", type=int, default=2)
     parser.add_argument("--ppo_minibatch_size", type=int, default=32)
     parser.add_argument("--discount_factor", type=float, default=0.9)
     parser.add_argument("--task_reward_threshold", type=float, default=0.8)
@@ -115,7 +115,7 @@ class Task:
     complexity: int
 
 
-def define_tasks(args) -> Sequence[Task]:
+def define_tasks() -> Sequence[Task]:
     # yapf: disable
     tasks: Sequence[Task] = (
         Task("MakePlank",  Item.PLANK,  2),
@@ -174,7 +174,7 @@ def generate_rollout(
     rollout: Sequence[Transition] = []
 
     # Perform typical RL loop.
-    agent.reset()
+    agent.reset(device=args.device)
     obs_raw: Observation = world.reset()
     while True:
         obs = encode_observation(obs_raw).to(args.device)
@@ -473,7 +473,7 @@ def main() -> None:
     configure()
 
     grammar: PolicyGrammar = define_grammar()
-    tasks: Sequence[Task] = define_tasks(args)
+    tasks: Sequence[Task] = define_tasks()
 
     agent: PolicyGrammarAgent = PolicyGrammarAgent(
         grammar,

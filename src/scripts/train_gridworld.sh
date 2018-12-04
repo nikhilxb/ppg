@@ -4,7 +4,7 @@
 
 
 ##### Experiment name #####
-EXP_NAME="test"
+EXP_NAME="ppg2"
 
 
 ##### CodaLab arguments #####
@@ -27,9 +27,8 @@ CODALAB_ARGS="$CODALAB_ARGS :src"  # Entire parent code directory
 
 
 ##### Command to execute #####
-CMD="PYTHONPATH=src/ python3.6 src/scripts/train_gridworld.py $EXP_NAME"
+CMD="PYTHONPATH=src/ python3.7 src/scripts/train_gridworld.py $EXP_NAME"
 CMD="$CMD --experiments_dir experiments/"
-CMD="$CMD --cuda 1"
 
 # Pass the command-line arguments through to override the above
 if [ -n "$1" ]; then

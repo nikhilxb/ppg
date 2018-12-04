@@ -67,7 +67,7 @@ class PPOClipLoss(nn.Module):
             self,
             clip_epsilon: float = 0.2,
             value_loss_coeff: float = 0.5,
-            entropy_loss_coeff: float = 0.5,
+            entropy_loss_coeff: float = 0.25,
     ):
         super().__init__()
         self.clip_epsilon: float = clip_epsilon
