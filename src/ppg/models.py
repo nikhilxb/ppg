@@ -59,7 +59,7 @@ class PolicyGrammarAgent(nn.Module):
         )
         self.hidden_state = None
 
-    def reset(self, device="cpu") -> None:
+    def reset(self, goal: str, device="cpu") -> None:
         self.hidden_state = torch.zeros(
             (self.state_net_layers_num, 1, self.agent_state_dim), device=device
         )

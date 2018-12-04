@@ -150,8 +150,8 @@ def encode_observation(obs_raw: Observation) -> torch.Tensor:
     inventory, window = obs_raw
 
     inventory_tensor = torch.zeros(len(Item))
-    for item in inventory:
-        inventory_tensor[item.value] = 1
+    for item, count in inventory.items():
+        inventory_tensor[item.value] = min(count, 1)
 
     num_rows, num_cols = len(window), len(window[0])
     window_tensor = torch.zeros(num_rows, num_cols, len(Cell))
@@ -165,7 +165,7 @@ def encode_observation(obs_raw: Observation) -> torch.Tensor:
 
 def generate_rollout(
         world: GridWorld,
-        agent: PolicyGrammarAgent,
+        agent: nn.Module,
         grammar_goal: str,
         critic: nn.Module,
         task_idx: int,
@@ -174,7 +174,7 @@ def generate_rollout(
     rollout: Sequence[Transition] = []
 
     # Perform typical RL loop.
-    agent.reset(device=args.device)
+    agent.reset(grammar_goal, device=args.device)
     obs_raw: Observation = world.reset()
     while True:
         obs = encode_observation(obs_raw).to(args.device)  # size[D]
@@ -270,7 +270,7 @@ def do_ppo_updates(
                 task_idx: int = trial.task_idx
                 rollout: VectorizedRollout = trial.rollout
 
-                agent.reset(device=args.device)
+                agent.reset(grammar_goal, device=args.device)
 
                 log_prob_old = rollout.log_prob  # size[t]
                 advantage_old = rollout.advantage
@@ -297,7 +297,7 @@ def do_ppo_updates(
 
 
 def train_step(
-        agent: PolicyGrammarAgent,
+        agent: nn.Module,
         critic: nn.Module,
         active_tasks: Sequence[Tuple[int, Task]],
         curriculum: dist.Categorical,
@@ -356,7 +356,7 @@ def train_step(
 
 
 def train_loop(
-        agent: PolicyGrammarAgent,
+        agent: nn.Module,
         critic: nn.Module,
         tasks: Sequence[Task],
         max_task_complexity: int = 3,

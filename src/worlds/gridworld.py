@@ -250,8 +250,8 @@ class GridWorld:
 
         # Construct returns
         observation: Observation = self._construct_observation()
-        reward: float = REWARD_GOAL if (self.goal in self.agent.inventory) else 0
-        done: bool = (self.goal in self.agent.inventory) or (self.timestep >= self.max_timesteps)
+        reward: float = REWARD_GOAL if (self.agent.inventory[self.goal] > 0) else 0
+        done: bool = (self.agent.inventory[self.goal] > 0) or (self.timestep >= self.max_timesteps)
         info: Mapping[str, Any] = {}
         info["timestep"] = self.timestep
 
@@ -309,7 +309,7 @@ class GridWorld:
                 row.append(cell_state)
             window.append(row)
 
-        return self.agent.inventory, window
+        return self.agent.inventory.copy(), window
 
     def __str__(self) -> str:
         symbols = [
