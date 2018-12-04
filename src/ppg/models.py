@@ -83,7 +83,7 @@ class PolicyGrammarAgent(nn.Module):
         return agent_state, action_probs
 
 
-class BaselineAgent(nn.Module):
+class PolicySketchAgent(nn.Module):
     """
     Baseline model; an implementation of the model in the Andreas et al Policy Sketches paper.
     This model *only* includes policy primitive networks ("policy_nets" in the above class).
@@ -108,7 +108,7 @@ class BaselineAgent(nn.Module):
                 nn.Softmax(),
             )
 
-       self.sketches = sketches  # { goal : [primitive_1, ..., primitive_n] }
+       self.sketches: Mapping[str, Sequence[str]] = sketches 
        self.primitives: Mapping[str, nn.Module] = {}
        for goal, primitives in sketches.item():
            for primitive in primitives:
