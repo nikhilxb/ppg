@@ -37,18 +37,18 @@ def define_args() -> None:
     # Experiment options.
     parser.add_argument("experiment_name")
     parser.add_argument("--experiments_dir", default="experiments/")
-    parser.add_argument("--seed", type=int, default=86)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cuda", type=bool, default=False)
     parser.add_argument("--checkpoint_interval", type=int, default=50)
 
     # GridWorld options.
-    parser.add_argument("--world_num_rows", type=int, default=10)
-    parser.add_argument("--world_num_cols", type=int, default=10)
+    parser.add_argument("--world_num_rows", type=int, default=5)
+    parser.add_argument("--world_num_cols", type=int, default=5)
     parser.add_argument("--world_max_timesteps", type=int, default=100)
     parser.add_argument("--world_window_radius", type=int, default=2)
 
     # Agent options.
-    parser.add_argument("--agent_type", type=str, default="sketch")
+    parser.add_argument("--agent_type", type=str, default="ppg")
     parser.add_argument("--agent_state_dim", type=int, default=128)
     parser.add_argument("--agent_action_dim", type=int, default=5)
     parser.add_argument("--activation_net_hidden_dim", type=int, default=32)
@@ -58,8 +58,8 @@ def define_args() -> None:
     parser.add_argument("--critic_net_hidden_dim", type=int, default=64)
 
     # Training options.
-    parser.add_argument("--num_rollouts", type=int, default=384)
-    parser.add_argument("--ppo_num_epochs", type=int, default=2)
+    parser.add_argument("--num_rollouts", type=int, default=512)
+    parser.add_argument("--ppo_num_epochs", type=int, default=4)
     parser.add_argument("--ppo_minibatch_size", type=int, default=32)
     parser.add_argument("--discount_factor", type=float, default=0.9)
     parser.add_argument("--task_reward_threshold", type=float, default=0.8)
@@ -85,9 +85,9 @@ def define_grammar() -> PolicyGrammar:
             "MakeRope",
             "MakeBridge",
             "MakeShears",
-            "MakeAxe",
-            "MakeBed",
-            "MakeLadder",
+            # "MakeAxe",
+            # "MakeBed",
+            # "MakeLadder",`
         ],
     )
 
@@ -227,7 +227,7 @@ def generate_rollout(
         )
         if done: break
 
-    rollout = compute_discounted_returns(rollout)
+    rollout = compute_discounted_returns(rollout, device=args.device)
     rollout = compute_advantages(rollout)
 
     def extract_values(t: Transition):
@@ -462,6 +462,7 @@ def configure() -> None:
 
     # Set CPU or GPU.
     args.device = "cuda:0" if args.cuda else "cpu"
+    if args.cuda: torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     # Set up experiment directory.
     if not os.path.exists(args.experiments_dir): os.mkdir(args.experiments_dir)

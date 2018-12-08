@@ -33,9 +33,9 @@ Rollout = Sequence[Transition]
 VectorizedRollout = Transition
 
 
-def compute_discounted_returns(rollout: Rollout, discount: float = 1.0) -> Rollout:
+def compute_discounted_returns(rollout: Rollout, discount: float = 1.0, device="cpu") -> Rollout:
     """Fills in `discounted_return` fields in-place for each `Transition` in the `Rollout`."""
-    curr_return = torch.tensor([0.0])
+    curr_return = torch.tensor([0.0]).to(device)
     for t in reversed(range(len(rollout))):
         curr_return = rollout[t].reward + discount * curr_return
         rollout[t].update(discounted_return=curr_return)
