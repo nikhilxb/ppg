@@ -41,8 +41,8 @@ def define_args() -> None:
     parser.add_argument("--checkpoint_interval", type=int, default=50)
 
     # GridWorld options.
-    parser.add_argument("--world_num_rows", type=int, default=5)
-    parser.add_argument("--world_num_cols", type=int, default=5)
+    parser.add_argument("--world_num_rows", type=int, default=10)
+    parser.add_argument("--world_num_cols", type=int, default=10)
     parser.add_argument("--world_max_timesteps", type=int, default=100)
     parser.add_argument("--world_window_radius", type=int, default=2)
 
@@ -56,12 +56,18 @@ def define_args() -> None:
     parser.add_argument("--state_net_layers_num", type=int, default=1)
     parser.add_argument("--critic_net_hidden_dim", type=int, default=64)
 
-    # Training options.
-    parser.add_argument("--num_rollouts", type=int, default=10)  # 512
-    parser.add_argument("--ppo_num_epochs", type=int, default=1)  # 4
-    parser.add_argument("--ppo_minibatch_size", type=int, default=1)  # 32
+    # Dataset generation options.
+    parser.add_argument("--num_rollouts", type=int, default=1024)
     parser.add_argument("--discount_factor", type=float, default=0.9)
     parser.add_argument("--task_reward_threshold", type=float, default=0.8)
+
+    # PPO options.
+    parser.add_argument("--ppo_num_epochs", type=int, default=3)
+    parser.add_argument("--ppo_minibatch_size", type=int, default=128)
+    parser.add_argument("--ppo_clip_epsilon", type=float, default=0.2)
+    parser.add_argument("--ppo_value_loss_coeff", type=float, default=0.9)
+    parser.add_argument("--ppo_entropy_loss_coeff", type=float, default=0.1)
+    parser.add_argument("--adam_lr", type=float, default=3e-4)
 
     global args
     args = parser.parse_args()
@@ -244,11 +250,13 @@ def do_ppo_updates(
         num_epochs: int = 3,
         minibatch_size: int = 32,
 ):
-    optimizer: Optimizer = Adam(list(agent.parameters()) + list(critic.parameters()))
+    optimizer: Optimizer = Adam(
+        list(agent.parameters()) + list(critic.parameters()), lr=args.adam_lr
+    )
     criterion = PPOClipLoss(
-        clip_epsilon=0.2,
-        value_loss_coeff=0.5,
-        entropy_loss_coeff=0.5,
+        clip_epsilon=args.ppo_clip_epsilon,
+        value_loss_coeff=args.ppo_value_loss_coeff,
+        entropy_loss_coeff=args.ppo_entropy_loss_coeff,
     )
 
     # Perform multiple passes over the dataset, increasing sample efficiency.
