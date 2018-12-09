@@ -38,7 +38,7 @@ def define_args() -> None:
     parser.add_argument("--experiments_dir", default="experiments/")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cuda", type=bool, default=False)
-    parser.add_argument("--checkpoint_interval", type=int, default=50)
+    parser.add_argument("--checkpoint_interval", type=int, default=25)
 
     # GridWorld options.
     parser.add_argument("--world_num_rows", type=int, default=10)

@@ -4,11 +4,11 @@
 
 
 ##### Experiment name #####
-EXP_NAME="ppg-simple"
+EXP_NAME="sketch-regular"
 
 
 ##### CodaLab arguments #####
-CODALAB_ARGS="cl upload src && cl run"
+CODALAB_ARGS="cl run"
 
 # Name of bundle
 CODALAB_ARGS="$CODALAB_ARGS --name $EXP_NAME"
@@ -29,6 +29,7 @@ CODALAB_ARGS="$CODALAB_ARGS :src"  # Entire parent code directory
 ##### Command to execute #####
 CMD="PYTHONPATH=src/ python3.7 src/scripts/train_gridworld.py $EXP_NAME"
 CMD="$CMD --experiments_dir experiments/"
+CMD="$CMD --agent_type sketch"
 
 # Pass the command-line arguments through to override the above
 if [ -n "$1" ]; then
